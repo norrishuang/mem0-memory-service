@@ -1,64 +1,62 @@
 #!/usr/bin/env python3
 """
-Quick smoke test: mem0 + OpenSearch + Bedrock Titan Embedding + Bedrock Claude Haiku
+Quick smoke test: mem0 + OpenSearch + Bedrock (or other LLM/Embedder)
+Reads config from .env / environment variables via config.py.
 """
+import sys
 import os
 
-# AWS region
-os.environ["AWS_REGION"] = "us-east-1"
+# Ensure config.py is importable
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from config import get_mem0_config, OPENSEARCH_HOST, SERVICE_PORT
 from mem0 import Memory
 
-config = {
-    "vector_store": {
-        "provider": "opensearch",
-        "config": {
-            "collection_name": "mem0_test",
-            "host": "vpc-internal-logs-analysis-lr7bsxv3u4szmdeik722czxlki.us-east-1.es.amazonaws.com",
-            "port": 443,
-            "http_auth": ("admin", "Amazon123!"),
-            "embedding_model_dims": 1024,
-            "use_ssl": True,
-            "verify_certs": True,
-        },
-    },
-    "embedder": {
-        "provider": "aws_bedrock",
-        "config": {
-            "model": "amazon.titan-embed-text-v2:0",
-        },
-    },
-    "llm": {
-        "provider": "aws_bedrock",
-        "config": {
-            "model": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
-            "temperature": 0.1,
-            "max_tokens": 2000,
-        },
-    },
-}
+print("🧪 mem0 Memory Service - Connection Test")
+print("=========================================")
+print(f"   OpenSearch: {OPENSEARCH_HOST}")
 
-print("1. Initializing Memory with config...")
-m = Memory.from_config(config)
-print("   ✅ Memory initialized")
+print("\n1. Initializing Memory with config...")
+try:
+    config = get_mem0_config()
+    m = Memory.from_config(config)
+    print("   ✅ Memory initialized")
+except Exception as e:
+    print(f"   ❌ Failed: {e}")
+    sys.exit(1)
 
-print("\n2. Adding test memories...")
-messages = [
-    {"role": "user", "content": "I'm working on DolphinScheduler EMR Serverless plugin"},
-    {"role": "assistant", "content": "That sounds like a great project! EMR Serverless is a good fit for DolphinScheduler task scheduling."},
-    {"role": "user", "content": "The PR #18069 is waiting for reviewer feedback on CI AWS authentication."},
-]
-result = m.add(messages, user_id="boss", agent_id="dev", metadata={"project": "dolphinscheduler"})
-print(f"   ✅ Added memories: {result}")
+print("\n2. Adding test memory...")
+try:
+    result = m.add("This is a test memory for connection verification.", user_id="test_user", agent_id="test_agent")
+    print(f"   ✅ Added: {result}")
+except Exception as e:
+    print(f"   ❌ Failed: {e}")
+    sys.exit(1)
 
 print("\n3. Searching memories...")
-search_results = m.search("DolphinScheduler EMR", user_id="boss", agent_id="dev")
-print(f"   ✅ Search results: {search_results}")
+try:
+    results = m.search("test memory", user_id="test_user", agent_id="test_agent")
+    print(f"   ✅ Search returned {len(results.get('results', []))} results")
+except Exception as e:
+    print(f"   ❌ Failed: {e}")
+    sys.exit(1)
 
-print("\n4. Listing all memories for user...")
-all_memories = m.get_all(user_id="boss", agent_id="dev")
-print(f"   ✅ Total memories: {len(all_memories.get('results', []))}")
-for mem in all_memories.get("results", []):
-    print(f"      - [{mem.get('id', 'N/A')[:8]}...] {mem.get('memory', 'N/A')[:80]}")
+print("\n4. Listing memories...")
+try:
+    all_mem = m.get_all(user_id="test_user", agent_id="test_agent")
+    count = len(all_mem.get("results", []))
+    print(f"   ✅ Total: {count} memories")
+except Exception as e:
+    print(f"   ❌ Failed: {e}")
+    sys.exit(1)
 
-print("\n🎉 All tests passed!")
+# Cleanup test data
+print("\n5. Cleaning up test data...")
+try:
+    for mem in all_mem.get("results", []):
+        m.delete(mem["id"])
+    print("   ✅ Test data cleaned")
+except Exception as e:
+    print(f"   ⚠️  Cleanup failed (non-critical): {e}")
+
+print("\n🎉 All tests passed! The service is ready.")

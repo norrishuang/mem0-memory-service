@@ -1,22 +1,32 @@
 """
 mem0 Memory Service Configuration
-All settings centralized here.
+Reads from environment variables (supports .env file).
 """
 import os
+from pathlib import Path
+
+# Auto-load .env from the same directory
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    with open(_env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
 
 # AWS
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+# Ensure boto3 picks it up
+os.environ.setdefault("AWS_REGION", AWS_REGION)
 
 # OpenSearch
-OPENSEARCH_HOST = os.getenv(
-    "OPENSEARCH_HOST",
-    "vpc-internal-logs-analysis-lr7bsxv3u4szmdeik722czxlki.us-east-1.es.amazonaws.com",
-)
-OPENSEARCH_PORT = int(os.getenv("OPENSEARCH_PORT", "443"))
+OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST", "localhost")
+OPENSEARCH_PORT = int(os.getenv("OPENSEARCH_PORT", "9200"))
 OPENSEARCH_USER = os.getenv("OPENSEARCH_USER", "admin")
-OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "Amazon123!")
-OPENSEARCH_USE_SSL = os.getenv("OPENSEARCH_USE_SSL", "true").lower() == "true"
-OPENSEARCH_VERIFY_CERTS = os.getenv("OPENSEARCH_VERIFY_CERTS", "true").lower() == "true"
+OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "")
+OPENSEARCH_USE_SSL = os.getenv("OPENSEARCH_USE_SSL", "false").lower() == "true"
+OPENSEARCH_VERIFY_CERTS = os.getenv("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true"
 OPENSEARCH_COLLECTION = os.getenv("OPENSEARCH_COLLECTION", "mem0_memories")
 
 # Embedding

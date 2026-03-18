@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=ec2-user
-WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
-Environment=AWS_REGION=us-east-1
-ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/server.py
+User=REPLACE_WITH_YOUR_USER
+WorkingDirectory=REPLACE_WITH_INSTALL_PATH
+EnvironmentFile=REPLACE_WITH_INSTALL_PATH/.env
+ExecStart=/usr/bin/python3 REPLACE_WITH_INSTALL_PATH/server.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
