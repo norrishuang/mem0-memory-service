@@ -1,0 +1,17 @@
+[Unit]
+Description=mem0 Memory Service - OpenClaw Agent Memory Layer
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
+Environment=AWS_REGION=us-east-1
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
