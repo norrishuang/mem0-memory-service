@@ -1,0 +1,39 @@
+# mem0 Patches
+
+记录 mem0 的已知问题和 patch 说明。当 mem0 升级版本后需要检查这些 PR 是否已合并。
+
+## Patch 1: OpenSearch 3.x nmslib 引擎废弃
+
+- **问题**: mem0 的 OpenSearch adapter 硬编码 `nmslib` 引擎，OpenSearch 3.0+ 已废弃，创建索引报 `mapper_parsing_exception`
+- **PR**: [mem0ai/mem0#4392](https://github.com/mem0ai/mem0/pull/4392)
+- **修复**: 新增 `knn_engine` / `knn_space_type` 配置项，默认 `lucene`（兼容所有版本）
+- **临时 patch**: 修改 `mem0/vector_stores/opensearch.py`，将 `"engine": "nmslib"` 改为 `"engine": "faiss"` 或 `"engine": "lucene"`
+
+```bash
+# 找到文件
+python3 -c "import mem0; import os; print(os.path.join(os.path.dirname(mem0.__file__), 'vector_stores/opensearch.py'))"
+# 替换所有 nmslib → lucene (或 faiss)
+sed -i 's/"engine": "nmslib"/"engine": "lucene"/g' <path>
+```
+
+## Patch 2: Bedrock Converse API temperature + top_p 冲突
+
+- **问题**: Claude Haiku 4.5 等新模型不允许同时传 `temperature` 和 `top_p`，mem0 默认 `top_p=0.9` 导致 `ValidationException`
+- **PR**: [mem0ai/mem0#4393](https://github.com/mem0ai/mem0/pull/4393)
+- **修复**: `top_p` 默认值改为 `None`，Converse API 调用仅在用户显式设置时才传 `topP`
+- **临时 patch**: 修改 `mem0/llms/aws_bedrock.py`，注释掉 Converse API `inferenceConfig` 中的 `topP` 行；以及 `mem0/configs/llms/aws_bedrock.py` 中 `top_p` 默认值改为 `None`
+
+```bash
+# 找到文件
+python3 -c "import mem0; import os; print(os.path.join(os.path.dirname(mem0.__file__), 'llms/aws_bedrock.py'))"
+# 手动编辑，或等 PR 合并后升级 mem0
+```
+
+## 检查 PR 状态
+
+```bash
+gh pr view 4392 --repo mem0ai/mem0 --json state -q .state
+gh pr view 4393 --repo mem0ai/mem0 --json state -q .state
+```
+
+当两个 PR 都 `MERGED` 后，直接 `pip install --upgrade mem0ai` 即可，无需再手动 patch。

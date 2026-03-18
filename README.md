@@ -216,24 +216,20 @@ mem0-memory-service/
 ├── mem0-memory.service     # systemd 服务模板
 ├── requirements.txt        # Python 依赖
 ├── .env.example            # 配置模板
+├── PATCHES.md              # mem0 已知问题和 patch 记录
 └── README.md
 ```
 
-## OpenSearch 3.x 兼容性
+## mem0 已知问题 & Patches
 
-mem0 v1.0.x 的 OpenSearch adapter 默认使用 `nmslib` 引擎，而 OpenSearch 3.0+ 已废弃 nmslib。
+使用 AWS Bedrock + OpenSearch 时 mem0 有两个已知 bug，我们已提交 PR 修复：
 
-我们已提交 PR 修复此问题：[mem0ai/mem0#4392](https://github.com/mem0ai/mem0/pull/4392)
+| 问题 | PR | 状态 |
+|------|-----|------|
+| OpenSearch 3.x nmslib 引擎废弃 | [#4392](https://github.com/mem0ai/mem0/pull/4392) | 待合并 |
+| Converse API temperature + top_p 冲突 (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | 待合并 |
 
-在 PR 合并前，如果你使用 OpenSearch 3.x，需要手动 patch：
-
-```bash
-# 找到 mem0 的 opensearch.py
-python3 -c "import mem0; print(mem0.__file__)"
-# 编辑 .../mem0/vector_stores/opensearch.py
-# 将所有 "engine": "nmslib" 改为 "engine": "faiss" 或 "lucene"
-# 将 "space_type": "cosinesimil" 改为适配的 space_type
-```
+在 PR 合并前需要手动 patch，详见 [PATCHES.md](./PATCHES.md)。
 
 ## License
 
