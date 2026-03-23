@@ -148,6 +148,67 @@ python3 cli.py cleanup --user me --agent dev
 - 临时决策或假设
 ```
 
+### 自动短期记忆提取
+
+`auto_digest.py` 脚本可以每小时自动从日记文件中提取短期事件，并存入 mem0（带 7 天 TTL）。
+
+#### 工作原理
+
+1. **读取日记文件**：从 `/home/ec2-user/.openclaw/workspace-dev/memory/` 读取今天的日记（`YYYY-MM-DD.md`，按北京时间 UTC+8）
+2. **增量处理**：通过 `.digest_state.json` 记录文件读取偏移量，只处理新增内容
+3. **LLM 提取**：调用 AWS Bedrock Claude 3.5 Haiku 提取关键短期事件（人物讨论、任务进展、临时决策等）
+4. **写入 mem0**：每条事件单独存储，`ttl_days=7`，元数据标签 `category=short_term, source=auto_digest`
+
+#### 配置定时任务
+
+使用 cron 每小时自动运行：
+
+```bash
+# 编辑 crontab
+crontab -e
+
+# 添加以下行（每小时整点执行）
+0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
+```
+
+或者使用以下命令一键添加：
+
+```bash
+(crontab -l 2>/dev/null; echo "# 每小时自动从日记提取短期记忆"; echo "0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
+```
+
+#### 手动运行和测试
+
+```bash
+# 手动运行一次
+cd /home/ec2-user/workspace/mem0-memory-service
+python3 auto_digest.py
+
+# 查看日志
+tail -f auto_digest.log
+
+# 验证写入的短期记忆
+python3 cli.py search --user boss --agent dev --query "今天" --top-k 10
+python3 cli.py list --user boss --agent dev | grep short_term
+```
+
+#### 文件说明
+
+- **`auto_digest.py`**：主脚本
+- **`.digest_state.json`**：状态文件，记录每个日记文件已处理的位置（git 已忽略）
+- **`auto_digest.log`**：运行日志，追加模式（git 已忽略）
+
+#### 自定义配置
+
+如需修改配置，编辑 `auto_digest.py` 中的以下变量：
+
+```python
+DIARY_DIR = Path("/home/ec2-user/.openclaw/workspace-dev/memory/")  # 日记目录
+TTL_DAYS = 7                                                         # 短期记忆过期天数
+MEM0_API_URL = "http://127.0.0.1:8230/memory/add"                   # mem0 API 地址
+BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"    # LLM 模型
+```
+
 ### HTTP API
 
 ```bash
