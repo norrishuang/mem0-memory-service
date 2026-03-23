@@ -127,7 +127,7 @@ python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
 | `decision` | 重要决策及原因 | "选择 cron 定时沉淀而非纯 heartbeat" |
 | `environment` | 环境配置、服务信息 | "EC2 us-east-1, Bedrock 模型配置" |
 | `preference` | 用户偏好、习惯 | "中文交流、简洁直接" |
-| `short_term` | 短期记忆，带过期时间 | "今天 Luke 和 Zoe 讨论了 X 问题" |
+| `short_term` | 短期记忆，用 run_id 隔离，7天后活跃度判断归档 | "今天 Luke 和 Zoe 讨论了 X 问题" |
 
 ### 短期记忆（基于 run_id + 自动归档）
 
