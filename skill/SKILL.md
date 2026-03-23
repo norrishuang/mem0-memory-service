@@ -104,6 +104,44 @@ python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
 | `decision` | 重要决策及原因 | "选择 cron 定时沉淀而非纯 heartbeat" |
 | `environment` | 环境配置、服务信息 | "EC2 us-east-1, Bedrock 模型配置" |
 | `preference` | 用户偏好、习惯 | "中文交流、简洁直接" |
+| `short_term` | 短期记忆，带过期时间 | "今天 Luke 和 Zoe 讨论了 X 问题" |
+
+### 短期记忆（自动过期）
+
+适合临时事件、会议讨论、短期决策等场景，过期后自动清理：
+
+```bash
+# 使用 TTL（N 天后过期）
+python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
+  --user boss --agent main \
+  --text "今天 Luke 和 Zoe 讨论了 mem0 短期记忆方案，决定用 expires_at metadata 实现" \
+  --ttl-days 7
+
+# 使用明确的过期日期
+python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
+  --user boss --agent main \
+  --text "项目 X 的 deadline 是下周五" \
+  --expires-at 2026-03-30
+
+# 带 metadata 分类
+python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
+  --user boss --agent main \
+  --text "临时讨论：考虑将 Y 功能推迟到下个 sprint" \
+  --ttl-days 14 \
+  --metadata '{"category":"short_term","project":"xxx"}'
+```
+
+**使用场景：**
+- 临时讨论记录（1-7天）
+- 会议纪要
+- 短期任务提醒
+- 临时决策或假设
+- 过渡期方案（待正式决定后替换）
+
+**注意：**
+- 短期记忆带 `expires_at` 字段，过期后可通过 `cleanup` 命令清理
+- heartbeat 时会自动调用 cleanup 清理过期记忆
+- 不确定是否永久的，优先用短期记忆（可以随时转换为永久）
 
 ## 检索
 
@@ -137,6 +175,9 @@ python3 /home/ec2-user/workspace/mem0-memory-service/cli.py delete --id <memory_
 
 # 变更历史
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py history --id <memory_id>
+
+# 清理过期的短期记忆（heartbeat 时自动调用）
+python3 /home/ec2-user/workspace/mem0-memory-service/cli.py cleanup --user boss --agent main
 ```
 
 ## 数据隔离

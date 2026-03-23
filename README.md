@@ -122,6 +122,32 @@ python3 cli.py delete --id <memory_id>
 python3 cli.py history --id <memory_id>
 ```
 
+#### 短期记忆（带 TTL）
+
+短期记忆会自动过期，适合临时事件、会议讨论等场景：
+
+```bash
+# 使用 TTL（7天后过期）
+python3 cli.py add --user me --agent dev \
+  --text "今天 Luke 和 Zoe 讨论了 mem0 短期记忆方案" \
+  --ttl-days 7
+
+# 使用明确的过期日期
+python3 cli.py add --user me --agent dev \
+  --text "项目 deadline 是下周五" \
+  --expires-at 2026-03-30
+
+# 清理过期的短期记忆（heartbeat 时自动调用）
+python3 cli.py cleanup --user me --agent dev
+```
+
+**使用场景：**
+- 临时讨论记录（1-7天）
+- 会议纪要
+- 短期任务提醒
+- 临时决策或假设
+```
+
 ### HTTP API
 
 ```bash
@@ -155,12 +181,13 @@ curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=dev'
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/health` | 健康检查 |
-| POST | `/memory/add` | 添加记忆 (`messages` 或 `text`) |
+| POST | `/memory/add` | 添加记忆 (`messages` 或 `text`，支持 `ttl_days` / `expires_at` 字段) |
 | POST | `/memory/search` | 语义搜索 |
 | GET | `/memory/list` | 列出记忆 (支持 `user_id`, `agent_id` 过滤) |
 | GET | `/memory/{id}` | 获取单条记忆 |
 | PUT | `/memory/update` | 更新记忆 |
 | DELETE | `/memory/{id}` | 删除记忆 |
+| DELETE | `/memory/cleanup/expired` | 清理过期的短期记忆 |
 | GET | `/memory/history/{id}` | 查看记忆变更历史 |
 
 ## 数据隔离

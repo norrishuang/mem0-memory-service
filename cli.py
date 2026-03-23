@@ -29,6 +29,10 @@ def add_memory(args):
         payload["run_id"] = args.run
     if args.metadata:
         payload["metadata"] = json.loads(args.metadata)
+    if args.ttl_days:
+        payload["ttl_days"] = args.ttl_days
+    if args.expires_at:
+        payload["expires_at"] = args.expires_at
 
     if args.messages:
         payload["messages"] = json.loads(args.messages)
@@ -89,6 +93,15 @@ def memory_history(args):
     print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
 
 
+def cleanup_expired(args):
+    params = {"user_id": args.user}
+    if args.agent:
+        params["agent_id"] = args.agent
+    resp = requests.delete(f"{BASE_URL}/memory/cleanup/expired", params=params, timeout=30)
+    resp.raise_for_status()
+    print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
+
+
 def main():
     parser = argparse.ArgumentParser(description="mem0 Memory CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -101,6 +114,10 @@ def main():
     p_add.add_argument("--text", default=None)
     p_add.add_argument("--messages", default=None, help="JSON array of {role, content}")
     p_add.add_argument("--metadata", default=None, help="JSON object of metadata")
+    p_add.add_argument("--ttl-days", type=int, default=None, dest="ttl_days",
+                       help="Short-term TTL in days (e.g. 7 for 7-day expiry)")
+    p_add.add_argument("--expires-at", default=None, dest="expires_at",
+                       help="Explicit expiry date YYYY-MM-DD")
     p_add.set_defaults(func=add_memory)
 
     # search
@@ -133,6 +150,12 @@ def main():
     p_hist = sub.add_parser("history", help="Get memory change history")
     p_hist.add_argument("--id", required=True)
     p_hist.set_defaults(func=memory_history)
+
+    # cleanup
+    p_cleanup = sub.add_parser("cleanup", help="Delete expired short-term memories")
+    p_cleanup.add_argument("--user", required=True)
+    p_cleanup.add_argument("--agent", default=None)
+    p_cleanup.set_defaults(func=cleanup_expired)
 
     args = parser.parse_args()
     args.func(args)
