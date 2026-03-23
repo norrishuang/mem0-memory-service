@@ -1,0 +1,18 @@
+[Unit]
+Description=mem0 Memory Archive Service
+Documentation=https://github.com/norrishuang/mem0-memory-service
+After=network.target mem0-memory.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/archive.py
+StandardOutput=append:/home/ec2-user/workspace/mem0-memory-service/archive.log
+StandardError=append:/home/ec2-user/workspace/mem0-memory-service/archive.log
+
+# Environment variables (if needed)
+# EnvironmentFile=/home/ec2-user/workspace/mem0-memory-service/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -3,7 +3,7 @@
 auto_digest.py - 自动从日记文件提取短期记忆
 
 每小时由 cron 调用，读取今天的日记文件，提取过去1小时内新增的内容，
-用 LLM 抽取关键短期事件，写入 mem0（ttl_days=7）。
+用 LLM 抽取关键短期事件，写入 mem0（带 run_id=YYYY-MM-DD）。
 """
 import os
 import sys
@@ -24,7 +24,6 @@ LOG_FILE = Path(__file__).parent / "auto_digest.log"
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 AWS_REGION = "us-east-1"
-TTL_DAYS = 7
 
 # LLM prompt for extracting short-term events
 EXTRACT_PROMPT = """你是一个记忆提取助手。以下是一段工作日记内容，请从中提取今天发生的关键短期事件。
@@ -158,13 +157,13 @@ def call_llm_extract(content: str) -> Optional[List[str]]:
 
 
 def write_to_mem0(event: str, digest_date: str) -> bool:
-    """Write a single event to mem0 via HTTP API."""
+    """Write a single event to mem0 via HTTP API with run_id."""
     try:
         payload = {
             "user_id": "boss",
             "agent_id": "dev",
+            "run_id": digest_date,  # Use date as run_id for short-term memory
             "text": event,
-            "ttl_days": TTL_DAYS,
             "metadata": {
                 "category": "short_term",
                 "source": "auto_digest",

@@ -10,3 +10,4 @@ build/
 # Auto digest runtime files
 .digest_state.json
 auto_digest.log
+archive.log

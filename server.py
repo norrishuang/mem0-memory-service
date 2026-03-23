@@ -56,10 +56,8 @@ class AddMemoryRequest(BaseModel):
     text: Optional[str] = Field(None, description="Raw text to memorize (alternative to messages)")
     user_id: str = Field(..., description="User identifier (e.g. 'boss')")
     agent_id: Optional[str] = Field(None, description="Agent identifier (e.g. 'dev', 'main')")
-    run_id: Optional[str] = Field(None, description="Run/session identifier")
+    run_id: Optional[str] = Field(None, description="Run/session identifier (e.g. YYYY-MM-DD for short-term memories)")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Extra metadata tags")
-    expires_at: Optional[str] = Field(None, description="Expiry date in YYYY-MM-DD format. If set, memory is treated as short-term.")
-    ttl_days: Optional[int] = Field(None, description="TTL in days from now. Alternative to expires_at.")
 
 
 class SearchMemoryRequest(BaseModel):
@@ -69,6 +67,15 @@ class SearchMemoryRequest(BaseModel):
     agent_id: Optional[str] = Field(None, description="Filter by agent")
     run_id: Optional[str] = Field(None, description="Filter by run")
     top_k: int = Field(10, description="Max results to return", ge=1, le=100)
+
+
+class CombinedSearchRequest(BaseModel):
+    """Combined search: long-term + recent short-term memories."""
+    query: str = Field(..., description="Natural language query")
+    user_id: str = Field(..., description="User identifier")
+    agent_id: Optional[str] = Field(None, description="Filter by agent")
+    top_k: int = Field(10, description="Max results to return", ge=1, le=100)
+    recent_days: int = Field(7, description="Number of recent days to include in search", ge=1, le=30)
 
 
 class UpdateMemoryRequest(BaseModel):
@@ -96,6 +103,7 @@ async def add_memory(req: AddMemoryRequest):
     """
     Add memories from conversation messages or raw text.
     mem0 will automatically extract, deduplicate, and store key facts.
+    Use run_id (e.g. YYYY-MM-DD) for short-term memories.
     """
     if not req.messages and not req.text:
         raise HTTPException(status_code=400, detail="Either 'messages' or 'text' is required")
@@ -105,20 +113,7 @@ async def add_memory(req: AddMemoryRequest):
         kwargs["agent_id"] = req.agent_id
     if req.run_id:
         kwargs["run_id"] = req.run_id
-
-    # Handle short-term memory with TTL
-    expires_at = None
-    if req.ttl_days and not req.expires_at:
-        expires_at = (datetime.utcnow() + timedelta(days=req.ttl_days)).strftime("%Y-%m-%d")
-    elif req.expires_at:
-        expires_at = req.expires_at
-
-    if expires_at:
-        metadata = req.metadata or {}
-        metadata["expires_at"] = expires_at
-        metadata.setdefault("category", "short_term")
-        kwargs["metadata"] = metadata
-    elif req.metadata:
+    if req.metadata:
         kwargs["metadata"] = req.metadata
 
     try:
@@ -150,6 +145,63 @@ async def search_memory(req: SearchMemoryRequest):
     except Exception as e:
         logger.error(f"Error searching memory: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/memory/search_combined")
+async def search_combined(req: CombinedSearchRequest):
+    """
+    Combined search: long-term memory (no run_id) + recent short-term memory (run_id=recent dates).
+    Returns merged and deduplicated results sorted by score.
+    """
+    from datetime import timezone
+
+    # Beijing time
+    tz_beijing = timezone(timedelta(hours=8))
+    today = datetime.now(tz_beijing).date()
+
+    all_results = []
+    seen_ids = set()
+
+    # 1. Search long-term memories (no run_id)
+    kwargs_long = {"user_id": req.user_id, "limit": req.top_k}
+    if req.agent_id:
+        kwargs_long["agent_id"] = req.agent_id
+
+    try:
+        long_results = memory.search(req.query, **kwargs_long)
+        # Handle both dict {"results": [...]} and direct list formats
+        results_list = long_results.get("results", long_results) if isinstance(long_results, dict) else long_results
+        for r in results_list:
+            if r.get("id") not in seen_ids:
+                r["memory_type"] = "long_term"
+                all_results.append(r)
+                seen_ids.add(r.get("id"))
+    except Exception as e:
+        logger.warning(f"Error searching long-term memories: {e}")
+
+    # 2. Search recent N days of short-term memories
+    for i in range(req.recent_days):
+        day = today - timedelta(days=i)
+        run_id = day.strftime("%Y-%m-%d")
+        kwargs_short = {"user_id": req.user_id, "limit": req.top_k, "run_id": run_id}
+        if req.agent_id:
+            kwargs_short["agent_id"] = req.agent_id
+        try:
+            short_results = memory.search(req.query, **kwargs_short)
+            results_list = short_results.get("results", short_results) if isinstance(short_results, dict) else short_results
+            for r in results_list:
+                if r.get("id") not in seen_ids:
+                    r["memory_type"] = "short_term"
+                    r["run_id"] = run_id
+                    all_results.append(r)
+                    seen_ids.add(r.get("id"))
+        except Exception:
+            pass  # No memories for this day is normal
+
+    # 3. Sort by score
+    all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    return {"status": "ok", "results": all_results[:req.top_k]}
 
 
 @app.get("/memory/list")
@@ -236,52 +288,6 @@ async def memory_history(memory_id: str):
         return {"status": "ok", "history": result}
     except Exception as e:
         logger.error(f"Error getting memory history: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/memory/cleanup/expired")
-async def cleanup_expired_memories(user_id: str, agent_id: Optional[str] = None):
-    """
-    Delete all short-term memories that have passed their expires_at date.
-    Returns count of deleted memories.
-    """
-    kwargs = {"user_id": user_id}
-    if agent_id:
-        kwargs["agent_id"] = agent_id
-
-    try:
-        # Get all memories for this user/agent
-        all_memories = memory.get_all(**kwargs)
-
-        # Handle different return formats (list or dict with 'results' key)
-        if isinstance(all_memories, dict):
-            memories_list = all_memories.get("results", [])
-        else:
-            memories_list = all_memories
-
-        # Filter for expired memories
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        expired_ids = []
-
-        for mem in memories_list:
-            metadata = mem.get("metadata")
-            if metadata and isinstance(metadata, dict):
-                expires_at = metadata.get("expires_at")
-                if expires_at and expires_at < today:
-                    expired_ids.append(mem["id"])
-
-        # Delete expired memories
-        for mem_id in expired_ids:
-            memory.delete(mem_id)
-
-        logger.info(f"Cleaned up {len(expired_ids)} expired memories for user={user_id}, agent={agent_id}")
-        return {
-            "status": "ok",
-            "deleted_count": len(expired_ids),
-            "deleted_ids": expired_ids
-        }
-    except Exception as e:
-        logger.error(f"Error cleaning up expired memories: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

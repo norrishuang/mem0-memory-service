@@ -29,10 +29,6 @@ def add_memory(args):
         payload["run_id"] = args.run
     if args.metadata:
         payload["metadata"] = json.loads(args.metadata)
-    if args.ttl_days:
-        payload["ttl_days"] = args.ttl_days
-    if args.expires_at:
-        payload["expires_at"] = args.expires_at
 
     if args.messages:
         payload["messages"] = json.loads(args.messages)
@@ -55,10 +51,17 @@ def search_memory(args):
     }
     if args.agent:
         payload["agent_id"] = args.agent
-    if args.run:
-        payload["run_id"] = args.run
 
-    resp = requests.post(f"{BASE_URL}/memory/search", json=payload, timeout=30)
+    # Use combined search if requested
+    if args.combined:
+        payload["recent_days"] = args.recent_days
+        endpoint = f"{BASE_URL}/memory/search_combined"
+    else:
+        if args.run:
+            payload["run_id"] = args.run
+        endpoint = f"{BASE_URL}/memory/search"
+
+    resp = requests.post(endpoint, json=payload, timeout=30)
     resp.raise_for_status()
     print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
 
@@ -93,15 +96,6 @@ def memory_history(args):
     print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
 
 
-def cleanup_expired(args):
-    params = {"user_id": args.user}
-    if args.agent:
-        params["agent_id"] = args.agent
-    resp = requests.delete(f"{BASE_URL}/memory/cleanup/expired", params=params, timeout=30)
-    resp.raise_for_status()
-    print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
-
-
 def main():
     parser = argparse.ArgumentParser(description="mem0 Memory CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -110,23 +104,23 @@ def main():
     p_add = sub.add_parser("add", help="Add memory")
     p_add.add_argument("--user", required=True)
     p_add.add_argument("--agent", default=None)
-    p_add.add_argument("--run", default=None)
+    p_add.add_argument("--run", default=None, help="Run/session ID (e.g. YYYY-MM-DD for short-term memories)")
     p_add.add_argument("--text", default=None)
     p_add.add_argument("--messages", default=None, help="JSON array of {role, content}")
     p_add.add_argument("--metadata", default=None, help="JSON object of metadata")
-    p_add.add_argument("--ttl-days", type=int, default=None, dest="ttl_days",
-                       help="Short-term TTL in days (e.g. 7 for 7-day expiry)")
-    p_add.add_argument("--expires-at", default=None, dest="expires_at",
-                       help="Explicit expiry date YYYY-MM-DD")
     p_add.set_defaults(func=add_memory)
 
     # search
     p_search = sub.add_parser("search", help="Search memories")
     p_search.add_argument("--user", required=True)
     p_search.add_argument("--agent", default=None)
-    p_search.add_argument("--run", default=None)
+    p_search.add_argument("--run", default=None, help="Filter by specific run ID")
     p_search.add_argument("--query", required=True)
     p_search.add_argument("--top-k", type=int, default=10)
+    p_search.add_argument("--combined", action="store_true",
+                          help="Combined search: long-term + recent short-term memories")
+    p_search.add_argument("--recent-days", type=int, default=7,
+                          help="Number of recent days to include in combined search (default: 7)")
     p_search.set_defaults(func=search_memory)
 
     # list
@@ -150,12 +144,6 @@ def main():
     p_hist = sub.add_parser("history", help="Get memory change history")
     p_hist.add_argument("--id", required=True)
     p_hist.set_defaults(func=memory_history)
-
-    # cleanup
-    p_cleanup = sub.add_parser("cleanup", help="Delete expired short-term memories")
-    p_cleanup.add_argument("--user", required=True)
-    p_cleanup.add_argument("--agent", default=None)
-    p_cleanup.set_defaults(func=cleanup_expired)
 
     args = parser.parse_args()
     args.func(args)
