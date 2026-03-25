@@ -18,9 +18,36 @@ import requests
 
 # ─── Configuration ───
 
-DIARY_DIR = Path("/home/ec2-user/.openclaw/workspace-dev/memory/")
-STATE_FILE = Path(__file__).parent / ".digest_state.json"
+# 支持所有 agent workspace 的 memory 目录
+WORKSPACE_BASE = Path("/home/ec2-user/.openclaw/")
+AGENT_WORKSPACES = ["blog", "dev", "pm", "pjm", "prototype", "researcher"]
+
+# Workspace 到 agent_id 的映射
+WORKSPACE_TO_AGENT = {
+    "blog": "blog",
+    "dev": "dev",
+    "pm": "pm",
+    "pjm": "pjm",
+    "prototype": "luke",
+    "researcher": "researcher"
+}
+
+# 汇总所有 workspace 的 diary 目录，返回 (Path, agent_id) 元组列表
+def get_all_diary_dirs() -> List[tuple]:
+    """Get all memory directories from all agent workspaces."""
+    dirs = []
+    for agent in AGENT_WORKSPACES:
+        diary_dir = WORKSPACE_BASE / f"workspace-{agent}" / "memory"
+        if diary_dir.exists():
+            dirs.append((diary_dir, agent))
+        else:
+            pass  # Skip non-existent directories at startup
+    return dirs
+
+# DIARY_DIRS 延迟初始化（在 main 中调用）
+# STATE_FILE = Path(__file__).parent / ".digest_state.json"
 LOG_FILE = Path(__file__).parent / "auto_digest.log"
+STATE_FILE = Path(__file__).parent / ".digest_state.json"  # 移到这里，在 logger 之后
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 AWS_REGION = "us-east-1"
@@ -156,18 +183,19 @@ def call_llm_extract(content: str) -> Optional[List[str]]:
         return None
 
 
-def write_to_mem0(event: str, digest_date: str) -> bool:
+def write_to_mem0(event: str, digest_date: str, agent_id: str = "dev") -> bool:
     """Write a single event to mem0 via HTTP API with run_id."""
     try:
         payload = {
             "user_id": "boss",
-            "agent_id": "dev",
+            "agent_id": agent_id,
             "run_id": digest_date,  # Use date as run_id for short-term memory
             "text": event,
             "metadata": {
                 "category": "short_term",
                 "source": "auto_digest",
-                "digest_date": digest_date
+                "digest_date": digest_date,
+                "workspace_agent": agent_id
             }
         }
 
@@ -182,7 +210,7 @@ def write_to_mem0(event: str, digest_date: str) -> bool:
         return False
 
 
-def process_diary_file(file_path: Path, state: Dict[str, int], digest_date: str):
+def process_diary_file(file_path: Path, state: Dict[str, int], digest_date: str, agent_id: str = "dev"):
     """Process a single diary file."""
     file_key = str(file_path)
     last_offset = state.get(file_key, 0)
@@ -202,10 +230,10 @@ def process_diary_file(file_path: Path, state: Dict[str, int], digest_date: str)
     # Write each event to mem0
     success_count = 0
     for event in events:
-        if write_to_mem0(event, digest_date):
+        if write_to_mem0(event, digest_date, agent_id):
             success_count += 1
 
-    logger.info(f"Successfully wrote {success_count}/{len(events)} events to mem0")
+    logger.info(f"Successfully wrote {success_count}/{len(events)} events to mem0 (agent: {agent_id})")
 
     # Update state with current file size
     state[file_key] = file_path.stat().st_size
@@ -213,8 +241,15 @@ def process_diary_file(file_path: Path, state: Dict[str, int], digest_date: str)
 
 def main():
     """Main entry point."""
+    global DIARY_DIRS
+    
     logger.info("=" * 80)
     logger.info("Starting auto_digest.py")
+
+    # Initialize DIARY_DIRS (必须在 logger 初始化之后)
+    DIARY_DIRS = get_all_diary_dirs()
+    for diary_dir, agent in DIARY_DIRS:
+        logger.info(f"Found diary directory: {diary_dir} (agent: {agent})")
 
     # Get current date in Beijing timezone
     today = get_beijing_date()
@@ -223,26 +258,28 @@ def main():
     # Load state
     state = load_state()
 
-    # Check today's diary file
-    today_file = DIARY_DIR / f"{today}.md"
-
-    # Also check yesterday's file for cross-day boundary cases
+    # Check today's diary file in all workspaces
     yesterday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-    yesterday_file = DIARY_DIR / f"{yesterday}.md"
 
-    # Process files
     files_to_process = []
-    if yesterday_file.exists():
-        files_to_process.append(yesterday_file)
-    if today_file.exists():
-        files_to_process.append(today_file)
+    for diary_dir, agent in DIARY_DIRS:
+        # Check today's file
+        today_file = diary_dir / f"{today}.md"
+        yesterday_file = diary_dir / f"{yesterday}.md"
+
+        if yesterday_file.exists():
+            files_to_process.append((yesterday_file, agent))
+            logger.info(f"Found yesterday's file: {yesterday_file} (agent: {agent})")
+        if today_file.exists():
+            files_to_process.append((today_file, agent))
+            logger.info(f"Found today's file: {today_file} (agent: {agent})")
 
     if not files_to_process:
         logger.info("No diary files to process")
         return
 
-    for file_path in files_to_process:
-        process_diary_file(file_path, state, today)
+    for file_path, agent_id in files_to_process:
+        process_diary_file(file_path, state, today, agent_id)
 
     # Save state
     save_state(state)
