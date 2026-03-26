@@ -8,6 +8,18 @@ A unified memory layer based on [mem0](https://github.com/mem0ai/mem0), providin
 
 Agents can automatically store and retrieve memories through conversations, without manual file management.
 
+## Features
+
+- **Cross-Session Persistent Memory** — OpenClaw starts every conversation as an isolated session with no built-in memory. This service persists key facts via mem0 and automatically retrieves relevant history when a new session begins, eliminating the need to re-introduce context every time.
+
+- **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (dev / blog / pjm / pm / prototype / researcher, etc.), each with a fully isolated memory space. Agents are auto-discovered by scanning workspaces — no manual registration required.
+
+- **Short-Term + Long-Term Tiered Storage** — Conversations are first captured as diary files (short-term, archived daily), then an LLM automatically distills key facts into a mem0 vector store (long-term). The pipeline: live session → diary snapshot → LLM extraction → vector memory.
+
+- **Cost-Optimized Vector Storage (S3 Vectors)** — Supports Amazon S3 Vectors as a vector backend, offering dramatically lower cost than self-managed OpenSearch clusters with pay-per-use pricing. OpenSearch is also supported for existing-cluster scenarios.
+
+- **Fully Automated Operations** — systemd timers handle the entire lifecycle: session snapshots every 5 minutes, diary digest every 15 minutes, short-term memory archival daily. Zero manual intervention; services auto-recover on restart.
+
 ## Design Philosophy
 
 ### Why Add Lifecycle Management on Top of mem0?
