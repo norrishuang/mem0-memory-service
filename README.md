@@ -90,6 +90,42 @@ OpenClaw Agents (dev, main, ...)
 - **AWS Bedrock** access (or modify config.py to use OpenAI or other LLM/Embedder)
 - **OpenClaw** installed and running
 
+### Amazon Bedrock Permissions
+
+This service uses Amazon Bedrock to invoke LLM (for memory extraction) and Embedding model (for vectorization). The deployment server must have permissions to call Bedrock models.
+
+- **EC2 deployment (recommended)**: Attach an IAM Role to the instance — no Access Key configuration needed
+- **Other environments**: Use an IAM User with Access Key (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`)
+
+**Minimum IAM policy:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockInvokeAccess",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      ]
+    }
+  ]
+}
+```
+
+> **Notes:**
+> - Default Embedding model: `amazon.titan-embed-text-v2:0` (1024 dimensions)
+> - Default LLM: Claude Haiku (configurable via `.env`)
+> - If you change model settings, update the Resource ARNs accordingly
+> - If using cross-region inference profiles (`us.anthropic.claude-*`), include the corresponding profile ARN in Resource
+
 ## Quick Deployment
 
 ### Method 1: One-Click Install (Recommended)

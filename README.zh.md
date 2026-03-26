@@ -88,6 +88,42 @@ OpenClaw Agents (dev, main, ...)
 - **AWS Bedrock** 访问权限（或自行修改 config.py 使用 OpenAI 等其他 LLM/Embedder）
 - **OpenClaw** 安装并运行
 
+### Amazon Bedrock 权限
+
+本服务使用 Amazon Bedrock 调用 LLM（用于记忆提取）和 Embedding 模型（用于向量化）。部署服务器必须有调用 Bedrock 模型的权限。
+
+- **EC2 部署（推荐）**：将 IAM Role 附加到实例，无需配置 Access Key
+- **其他环境**：使用 IAM User 的 Access Key（`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`）
+
+**最小权限 IAM 策略：**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockInvokeAccess",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      ]
+    }
+  ]
+}
+```
+
+> **说明：**
+> - 默认 Embedding 模型：`amazon.titan-embed-text-v2:0`（1024 维）
+> - 默认 LLM：Claude Haiku（可通过 `.env` 配置修改）
+> - 如果修改了模型配置，需要相应调整 Resource ARN
+> - 如果使用跨区域推理 profile（`us.anthropic.claude-*`），Resource 需要包含对应的 profile ARN
+
 ## 快速部署
 
 ### 方法 1：一键安装（推荐）
