@@ -256,7 +256,7 @@ def main():
     yesterday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
 
     files_to_process = []
-    for diary_dir, agent in DIARY_DIRS:
+    for diary_dir, agent in diary_dirs:
         # Check today's file
         today_file = diary_dir / f"{today}.md"
         yesterday_file = diary_dir / f"{yesterday}.md"
@@ -268,11 +268,11 @@ def main():
             files_to_process.append((today_file, agent))
             logger.info(f"Found today's file: {today_file} (agent: {agent})")
 
-    if not diary_dirs:
+    if not files_to_process:
         logger.info("No diary files to process")
         return
 
-    for file_path, agent_id in diary_dirs:
+    for file_path, agent_id in files_to_process:
         process_diary_file(file_path, state, today, agent_id)
 
     # Save state
