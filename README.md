@@ -212,7 +212,7 @@ python3 cli.py search --user me --agent dev --query "关键词" \
 
 #### 工作原理
 
-1. **读取日记文件**：从 `/home/ec2-user/.openclaw/workspace-dev/memory/` 读取今天的日记（`YYYY-MM-DD.md`，按北京时间 UTC+8）
+1. **读取日记文件**：从 `/home/ec2-user/.openclaw/workspace-{agent}/memory/` 读取今天的日记（`YYYY-MM-DD.md`，按北京时间 UTC+8）
 2. **增量处理**：通过 `.digest_state.json` 记录文件读取偏移量，只处理新增内容
 3. **LLM 提取**：调用 AWS Bedrock Claude 3.5 Haiku 提取关键短期事件（人物讨论、任务进展、临时决策等）
 4. **写入 mem0**：每条事件单独存储，`run_id=当天日期`，元数据标签 `category=short_term, source=auto_digest`
@@ -256,7 +256,48 @@ python3 cli.py list --user boss --agent dev | grep short_term
 - **`.digest_state.json`**：状态文件，记录每个日记文件已处理的位置（git 已忽略）
 - **`auto_digest.log`**：运行日志，追加模式（git 已忽略）
 
-#### 自定义配置
+### 实时会话快照
+
+`session_snapshot.py` 脚本每 15 分钟自动保存当前活跃 session 的对话到日记文件，解决 session 压缩导致最近对话丢失的问题。
+
+#### 工作原理
+
+1. **读取 session 文件**：从 OpenClaw 的 session store 读取当前活跃的 session
+2. **提取消息**：解析 JSONL 格式，提取用户和 AI 的对话消息
+3. **去重写入**：检查是否已存在相同内容，避免重复写入
+4. **格式整理**：human 消息标记为 Boss，AI 消息标记为 Dev
+
+#### 配置定时任务（systemd timer，推荐）
+
+```bash
+# 复制 systemd 单元到用户目录
+mkdir -p ~/.config/systemd/user/
+cp systemd/mem0-snapshot.service ~/.config/systemd/user/
+cp systemd/mem0-snapshot.timer ~/.config/systemd/user/
+
+# 启用 timer
+systemctl --user daemon-reload
+systemctl --user enable --now mem0-snapshot.timer
+```
+
+#### 手动运行和测试
+
+```bash
+python3 session_snapshot.py
+```
+
+#### 为什么需要这个？
+
+- **问题**：OpenClaw 的 session 会话可能因为上下文过长而"压缩"，压缩前的对话历史可能丢失
+- **解决**：每 15 分钟保存一次，确保最多丢失 15 分钟的对话
+
+#### 文件说明
+
+- **`session_snapshot.py`**：主脚本
+- **`systemd/mem0-snapshot.service`**：systemd service 单元
+- **`systemd/mem0-snapshot.timer`**：systemd timer 单元（每 15 分钟执行）
+
+### 自定义配置
 
 如需修改配置，编辑 `auto_digest.py` 中的以下变量：
 
@@ -436,6 +477,13 @@ mem0-memory-service/
 │   └── SKILL.md            # OpenClaw Skill 定义
 ├── migrate_memory_md.py    # MEMORY.md 迁移工具
 ├── test_connection.py      # 连通性测试
+├── auto_digest.py          # 自动从日记提取短期记忆（每小时）
+├── session_snapshot.py     # 实时保存session对话到日记（每15分钟）
+├── archive.py              # 短期记忆自动归档（每天）
+├── systemd/
+│   ├── mem0-snapshot.service   # systemd service
+│   ├── mem0-snapshot.timer     # systemd timer (每15分钟)
+│   └── ...                 # 其他 systemd 单元
 ├── mem0-memory.service     # systemd 服务模板
 ├── requirements.txt        # Python 依赖
 ├── .env.example            # 配置模板

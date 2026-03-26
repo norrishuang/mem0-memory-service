@@ -1,0 +1,13 @@
+[Unit]
+Description=Mem0 session snapshot - save current session to memory
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/session_snapshot.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
