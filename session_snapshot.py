@@ -179,6 +179,10 @@ def read_session_messages(session_path: Path, max_lines: int = 100) -> list:
                     content_list = msg.get('content', [])
                     text = ""
                     for c in content_list:
+                        if not isinstance(c, dict):
+                            if isinstance(c, str) and c.strip():
+                                text = c
+                            continue
                         if c.get('type') == 'text':
                             text = c.get('text', '')
                             break
