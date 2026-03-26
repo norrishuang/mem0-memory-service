@@ -172,17 +172,7 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 # 编辑 SKILL.md，将 $MEM0_HOME 替换为实际安装路径
 ```
 
-### 方法 3：让 OpenClaw Agent 帮你部署
-
-直接在对话中告诉你的 Agent：
-
-> 帮我部署 mem0 记忆服务。
-> 代码仓库在 https://github.com/norrishuang/mem0-memory-service
-> OpenSearch 地址是 xxx，用户名 admin，密码 xxx。
-
-Agent 会自动 clone 代码、运行安装脚本、配置 Skill。
-
-### 方法 4：一键 AI 部署提示词
+### 方法 3：一键 AI 部署提示词
 
 将以下提示词发送给你的 AI 助手，即可自动完成部署：
 

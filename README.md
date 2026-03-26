@@ -174,17 +174,7 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 # Edit SKILL.md, replace $MEM0_HOME with the actual installation path
 ```
 
-### Method 3: Let OpenClaw Agent Deploy for You
-
-Simply tell your Agent in a conversation:
-
-> Deploy the mem0 memory service for me.
-> The code repository is at https://github.com/norrishuang/mem0-memory-service
-> OpenSearch address is xxx, username admin, password xxx.
-
-The Agent will automatically clone the code, run the install script, and configure the Skill.
-
-### Method 4: One-Line AI Deploy Prompt
+### Method 3: One-Line AI Deploy Prompt
 
 Send the following prompt to your AI assistant to auto-deploy:
 
