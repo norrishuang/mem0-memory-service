@@ -214,7 +214,7 @@ python3 cli.py search --user me --agent dev --query "keywords" \
 
 ### Automatic Short-Term Memory Extraction
 
-The `auto_digest.py` script automatically extracts short-term events from diary files every hour and stores them in mem0 (`run_id=YYYY-MM-DD`).
+The `auto_digest.py` script automatically extracts short-term events from diary files every 15 minutes and stores them in mem0 (`run_id=YYYY-MM-DD`).
 
 #### How It Works
 
@@ -225,20 +225,20 @@ The `auto_digest.py` script automatically extracts short-term events from diary 
 
 #### Configure Scheduled Task
 
-Use cron to run automatically every hour:
+Use cron to run automatically every 15 minutes:
 
 ```bash
 # Edit crontab
 crontab -e
 
-# Add the following line (runs at the top of every hour)
-0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
+# Add the following line (runs every 15 minutes)
+*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
 ```
 
 Or use this command to add it in one step:
 
 ```bash
-(crontab -l 2>/dev/null; echo "# Auto-extract short-term memories from diary every hour"; echo "0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "# Auto-extract short-term memories from diary every 15 minutes"; echo "*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
 ```
 
 #### Manual Run and Testing
@@ -264,7 +264,7 @@ python3 cli.py list --user boss --agent dev | grep short_term
 
 ### Real-Time Session Snapshot
 
-The `session_snapshot.py` script automatically saves conversations from the current active session to diary files every 15 minutes, solving the problem of recent conversation loss due to session compression.
+The `session_snapshot.py` script automatically saves conversations from the current active session to diary files every 5 minutes, solving the problem of recent conversation loss due to session compression.
 
 #### How It Works
 
@@ -295,13 +295,13 @@ python3 session_snapshot.py
 #### Why Is This Needed?
 
 - **Problem**: OpenClaw sessions may "compress" due to excessive context length, and conversation history before compression may be lost
-- **Solution**: Save every 15 minutes, ensuring at most 15 minutes of conversation is lost
+- **Solution**: Save every 5 minutes, ensuring at most 5 minutes of conversation is lost
 
 #### File Descriptions
 
 - **`session_snapshot.py`**: Main script
 - **`systemd/mem0-snapshot.service`**: systemd service unit
-- **`systemd/mem0-snapshot.timer`**: systemd timer unit (every 15 minutes)
+- **`systemd/mem0-snapshot.timer`**: systemd timer unit (every 5 minutes)
 
 ### Custom Configuration
 
@@ -576,12 +576,12 @@ mem0-memory-service/
 │   └── SKILL.md            # OpenClaw Skill definition
 ├── migrate_memory_md.py    # MEMORY.md migration tool
 ├── test_connection.py      # Connectivity test
-├── auto_digest.py          # Auto-extract short-term memories from diary (hourly)
-├── session_snapshot.py     # Real-time session conversation saving (every 15 min)
+├── auto_digest.py          # Auto-extract short-term memories from diary (every 15 min)
+├── session_snapshot.py     # Real-time session conversation saving (every 5 min)
 ├── archive.py              # Short-term memory auto-archival (daily)
 ├── systemd/
 │   ├── mem0-snapshot.service   # systemd service
-│   ├── mem0-snapshot.timer     # systemd timer (every 15 min)
+│   ├── mem0-snapshot.timer     # systemd timer (every 5 min)
 │   └── ...                 # Other systemd units
 ├── mem0-memory.service     # systemd service template
 ├── requirements.txt        # Python dependencies

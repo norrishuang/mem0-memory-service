@@ -212,7 +212,7 @@ python3 cli.py search --user me --agent dev --query "关键词" \
 
 ### 自动短期记忆提取
 
-`auto_digest.py` 脚本可以每小时自动从日记文件中提取短期事件，并存入 mem0（`run_id=YYYY-MM-DD`）。
+`auto_digest.py` 脚本可以每 15 分钟自动从日记文件中提取短期事件，并存入 mem0（`run_id=YYYY-MM-DD`）。
 
 #### 工作原理
 
@@ -223,20 +223,20 @@ python3 cli.py search --user me --agent dev --query "关键词" \
 
 #### 配置定时任务
 
-使用 cron 每小时自动运行：
+使用 cron 每 15 分钟自动运行：
 
 ```bash
 # 编辑 crontab
 crontab -e
 
-# 添加以下行（每小时整点执行）
-0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
+# 添加以下行（每 15 分钟执行）
+*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
 ```
 
 或者使用以下命令一键添加：
 
 ```bash
-(crontab -l 2>/dev/null; echo "# 每小时自动从日记提取短期记忆"; echo "0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "# 每 15 分钟自动从日记提取短期记忆"; echo "*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
 ```
 
 #### 手动运行和测试
@@ -262,7 +262,7 @@ python3 cli.py list --user boss --agent dev | grep short_term
 
 ### 实时会话快照
 
-`session_snapshot.py` 脚本每 15 分钟自动保存当前活跃 session 的对话到日记文件，解决 session 压缩导致最近对话丢失的问题。
+`session_snapshot.py` 脚本每 5 分钟自动保存当前活跃 session 的对话到日记文件，解决 session 压缩导致最近对话丢失的问题。
 
 #### 工作原理
 
@@ -293,13 +293,13 @@ python3 session_snapshot.py
 #### 为什么需要这个？
 
 - **问题**：OpenClaw 的 session 会话可能因为上下文过长而"压缩"，压缩前的对话历史可能丢失
-- **解决**：每 15 分钟保存一次，确保最多丢失 15 分钟的对话
+- **解决**：每 5 分钟保存一次，确保最多丢失 5 分钟的对话
 
 #### 文件说明
 
 - **`session_snapshot.py`**：主脚本
 - **`systemd/mem0-snapshot.service`**：systemd service 单元
-- **`systemd/mem0-snapshot.timer`**：systemd timer 单元（每 15 分钟执行）
+- **`systemd/mem0-snapshot.timer`**：systemd timer 单元（每 5 分钟执行）
 
 ### 自定义配置
 
@@ -574,12 +574,12 @@ mem0-memory-service/
 │   └── SKILL.md            # OpenClaw Skill 定义
 ├── migrate_memory_md.py    # MEMORY.md 迁移工具
 ├── test_connection.py      # 连通性测试
-├── auto_digest.py          # 自动从日记提取短期记忆（每小时）
-├── session_snapshot.py     # 实时保存session对话到日记（每15分钟）
+├── auto_digest.py          # 自动从日记提取短期记忆（每15分钟）
+├── session_snapshot.py     # 实时保存session对话到日记（每5分钟）
 ├── archive.py              # 短期记忆自动归档（每天）
 ├── systemd/
 │   ├── mem0-snapshot.service   # systemd service
-│   ├── mem0-snapshot.timer     # systemd timer (每15分钟)
+│   ├── mem0-snapshot.timer     # systemd timer (每5分钟)
 │   └── ...                 # 其他 systemd 单元
 ├── mem0-memory.service     # systemd 服务模板
 ├── requirements.txt        # Python 依赖
