@@ -82,18 +82,29 @@ def build_s3vectors_config():
     }
 
 
-def fetch_memories(src, user_id=None, agent_id=None):
-    """Fetch all memories from source, with optional filters."""
+def fetch_memories(src, user_id=None, agent_id=None, page_size=100):
+    """Fetch all memories from source, increasing limit until all retrieved."""
     kwargs = {}
     if user_id:
         kwargs["user_id"] = user_id
     if agent_id:
         kwargs["agent_id"] = agent_id
-    result = src.get_all(**kwargs)
-    # Handle both dict {"results": [...]} and direct list
-    if isinstance(result, dict):
-        return result.get("results", [])
-    return result if isinstance(result, list) else []
+
+    def _parse(result):
+        if isinstance(result, dict):
+            return result.get("results", [])
+        return result if isinstance(result, list) else []
+
+    limit = page_size
+    while True:
+        memories = _parse(src.get_all(**kwargs, limit=limit))
+        logger.info(f"Fetched {len(memories)} memories (limit={limit})")
+        if len(memories) < limit:
+            break
+        limit += page_size
+
+    logger.info(f"Total memories fetched: {len(memories)}")
+    return memories
 
 
 def migrate(src, dst, memories, dry_run=False):
