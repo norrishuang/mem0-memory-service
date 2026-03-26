@@ -29,11 +29,25 @@ python3 -c "import mem0; import os; print(os.path.join(os.path.dirname(mem0.__fi
 # 手动编辑，或等 PR 合并后升级 mem0
 ```
 
+## Patch 3: S3Vectors Filter Format
+
+- **问题**: `s3_vectors.py` 的 `_convert_filters()` 方法生成的 filter 格式不正确，传给 `query_vectors` 时报 `Invalid query filter`。S3Vectors API 要求 MongoDB-style 操作符（`{"field": {"$eq": "value"}}`），而原代码生成的是 `{"equals": {"key": "...", "value": {"stringValue": "..."}}}`
+- **PR**: [mem0ai/mem0#4554](https://github.com/mem0ai/mem0/pull/4554)
+- **修复**: `_convert_filters()` 改用 `$eq` 操作符，多条件用 `$and` 组合
+- **一键 patch**: 项目提供了 `patch_s3vectors_filter.py` 脚本
+
+```bash
+python3 patch_s3vectors_filter.py
+```
+
+> ⚠️ `pip upgrade mem0ai` 后需重新执行 patch，直到 PR 合并为止。
+
 ## 检查 PR 状态
 
 ```bash
 gh pr view 4392 --repo mem0ai/mem0 --json state -q .state
 gh pr view 4393 --repo mem0ai/mem0 --json state -q .state
+gh pr view 4554 --repo mem0ai/mem0 --json state -q .state
 ```
 
-当两个 PR 都 `MERGED` 后，直接 `pip install --upgrade mem0ai` 即可，无需再手动 patch。
+当所有 PR 都 `MERGED` 后，直接 `pip install --upgrade mem0ai` 即可，无需再手动 patch。

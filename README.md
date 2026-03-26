@@ -732,6 +732,7 @@ When using AWS Bedrock + OpenSearch, mem0 has two known bugs. We have submitted 
 |-------|-----|--------|
 | OpenSearch 3.x nmslib engine deprecated | [#4392](https://github.com/mem0ai/mem0/pull/4392) | Pending merge |
 | Converse API temperature + top_p conflict (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Pending merge |
+| S3Vectors `query_vectors` invalid filter format | [#4554](https://github.com/mem0ai/mem0/pull/4554) | Pending merge |
 
 Manual patching is required before the PRs are merged. See [PATCHES.md](./PATCHES.md) for details.
 
