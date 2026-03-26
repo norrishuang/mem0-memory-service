@@ -11,3 +11,8 @@ build/
 .digest_state.json
 auto_digest.log
 archive.log
+
+# VitePress
+docs/.vitepress/dist
+docs/.vitepress/cache
+node_modules
