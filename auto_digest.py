@@ -18,30 +18,26 @@ import requests
 
 # ─── Configuration ───
 
-# 支持所有 agent workspace 的 memory 目录
 WORKSPACE_BASE = Path("/home/ec2-user/.openclaw/")
-AGENT_WORKSPACES = ["blog", "dev", "pm", "pjm", "prototype", "researcher"]
 
-# Workspace 到 agent_id 的映射
-WORKSPACE_TO_AGENT = {
-    "blog": "blog",
-    "dev": "dev",
-    "pm": "pm",
-    "pjm": "pjm",
-    "prototype": "luke",
-    "researcher": "researcher"
-}
-
-# 汇总所有 workspace 的 diary 目录，返回 (Path, agent_id) 元组列表
-def get_all_diary_dirs() -> List[tuple]:
-    """Get all memory directories from all agent workspaces."""
+def discover_agents() -> List[tuple]:
+    """动态发现所有 agent workspace，自动找出有 memory 目录的 agent"""
     dirs = []
-    for agent in AGENT_WORKSPACES:
-        diary_dir = WORKSPACE_BASE / f"workspace-{agent}" / "memory"
-        if diary_dir.exists():
-            dirs.append((diary_dir, agent))
+    if not WORKSPACE_BASE.exists():
+        logger.warning(f"Workspace base does not exist: {WORKSPACE_BASE}")
+        return dirs
+    
+    for workspace_dir in WORKSPACE_BASE.glob("workspace-*"):
+        # workspace-{agent_name} -> agent_name
+        agent_id = workspace_dir.name.replace("workspace-", "")
+        memory_dir = workspace_dir / "memory"
+        
+        if memory_dir.exists() and memory_dir.is_dir():
+            dirs.append((memory_dir, agent_id))
+            logger.info(f"Discovered agent: {agent_id} (memory: {memory_dir})")
         else:
-            pass  # Skip non-existent directories at startup
+            logger.debug(f"Skipping {workspace_dir.name}: no memory directory")
+    
     return dirs
 
 # DIARY_DIRS 延迟初始化（在 main 中调用）
@@ -241,14 +237,12 @@ def process_diary_file(file_path: Path, state: Dict[str, int], digest_date: str,
 
 def main():
     """Main entry point."""
-    global DIARY_DIRS
-    
     logger.info("=" * 80)
     logger.info("Starting auto_digest.py")
 
-    # Initialize DIARY_DIRS (必须在 logger 初始化之后)
-    DIARY_DIRS = get_all_diary_dirs()
-    for diary_dir, agent in DIARY_DIRS:
+    # 动态发现所有 agent workspace
+    diary_dirs = discover_agents()
+    for diary_dir, agent in diary_dirs:
         logger.info(f"Found diary directory: {diary_dir} (agent: {agent})")
 
     # Get current date in Beijing timezone
@@ -274,11 +268,11 @@ def main():
             files_to_process.append((today_file, agent))
             logger.info(f"Found today's file: {today_file} (agent: {agent})")
 
-    if not files_to_process:
+    if not diary_dirs:
         logger.info("No diary files to process")
         return
 
-    for file_path, agent_id in files_to_process:
+    for file_path, agent_id in diary_dirs:
         process_diary_file(file_path, state, today, agent_id)
 
     # Save state
