@@ -59,6 +59,8 @@ OpenClaw Agents (dev, main, ...)
 ┌──────────────────────┐
 │  OpenSearch           │  Vector store (k-NN)
 │  (self-hosted / AWS)  │
+│  ── or ──            │
+│  Amazon S3 Vectors    │  Cost-optimized vectors
 └──────────────────────┘
 ```
 
@@ -212,7 +214,7 @@ python3 cli.py search --user me --agent dev --query "keywords" \
 
 ### Automatic Short-Term Memory Extraction
 
-The `auto_digest.py` script automatically extracts short-term events from diary files every hour and stores them in mem0 (`run_id=YYYY-MM-DD`).
+The `auto_digest.py` script automatically extracts short-term events from diary files every 15 minutes and stores them in mem0 (`run_id=YYYY-MM-DD`).
 
 #### How It Works
 
@@ -223,20 +225,20 @@ The `auto_digest.py` script automatically extracts short-term events from diary 
 
 #### Configure Scheduled Task
 
-Use cron to run automatically every hour:
+Use cron to run automatically every 15 minutes:
 
 ```bash
 # Edit crontab
 crontab -e
 
-# Add the following line (runs at the top of every hour)
-0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
+# Add the following line (runs every 15 minutes)
+*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
 ```
 
 Or use this command to add it in one step:
 
 ```bash
-(crontab -l 2>/dev/null; echo "# Auto-extract short-term memories from diary every hour"; echo "0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "# Auto-extract short-term memories from diary every 15 minutes"; echo "*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
 ```
 
 #### Manual Run and Testing
@@ -262,7 +264,7 @@ python3 cli.py list --user boss --agent dev | grep short_term
 
 ### Real-Time Session Snapshot
 
-The `session_snapshot.py` script automatically saves conversations from the current active session to diary files every 15 minutes, solving the problem of recent conversation loss due to session compression.
+The `session_snapshot.py` script automatically saves conversations from the current active session to diary files every 5 minutes, solving the problem of recent conversation loss due to session compression.
 
 #### How It Works
 
@@ -293,13 +295,13 @@ python3 session_snapshot.py
 #### Why Is This Needed?
 
 - **Problem**: OpenClaw sessions may "compress" due to excessive context length, and conversation history before compression may be lost
-- **Solution**: Save every 15 minutes, ensuring at most 15 minutes of conversation is lost
+- **Solution**: Save every 5 minutes, ensuring at most 5 minutes of conversation is lost
 
 #### File Descriptions
 
 - **`session_snapshot.py`**: Main script
 - **`systemd/mem0-snapshot.service`**: systemd service unit
-- **`systemd/mem0-snapshot.timer`**: systemd timer unit (every 15 minutes)
+- **`systemd/mem0-snapshot.timer`**: systemd timer unit (every 5 minutes)
 
 ### Custom Configuration
 
@@ -446,16 +448,109 @@ All configuration is managed through environment variables or `.env` file (`inst
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AWS_REGION` | `us-east-1` | AWS region |
+| `VECTOR_STORE` | `opensearch` | Vector engine: `opensearch` or `s3vectors` |
 | `OPENSEARCH_HOST` | `localhost` | OpenSearch host |
 | `OPENSEARCH_PORT` | `9200` | Port |
 | `OPENSEARCH_USER` | `admin` | Username |
 | `OPENSEARCH_PASSWORD` | - | Password |
 | `OPENSEARCH_USE_SSL` | `false` | Whether to use SSL |
 | `OPENSEARCH_COLLECTION` | `mem0_memories` | Index name |
+| `S3VECTORS_BUCKET_NAME` | - | S3Vectors bucket name (required for `s3vectors` mode) |
+| `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors index name |
 | `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding model |
 | `EMBEDDING_DIMS` | `1024` | Vector dimensions |
 | `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-...` | LLM model |
 | `SERVICE_PORT` | `8230` | Service port |
+
+### Vector Store Configuration
+
+#### OpenSearch (Default)
+
+OpenSearch is the default vector engine. Just ensure the OpenSearch variables in `.env` are correct:
+
+```bash
+VECTOR_STORE=opensearch
+OPENSEARCH_HOST=your-opensearch-host.es.amazonaws.com
+OPENSEARCH_PORT=443
+OPENSEARCH_USER=admin
+OPENSEARCH_PASSWORD=your-password
+OPENSEARCH_USE_SSL=true
+```
+
+#### AWS S3 Vectors
+
+[Amazon S3 Vectors](https://aws.amazon.com/s3/features/vectors/) is a cost-optimized vector storage service from AWS with S3-level elasticity and durability, supporting sub-second query performance.
+
+**Configuration:**
+
+```bash
+export VECTOR_STORE=s3vectors
+export S3VECTORS_BUCKET_NAME=your-bucket-name
+export S3VECTORS_INDEX_NAME=mem0          # Optional, defaults to mem0
+export AWS_REGION=us-east-1               # Optional, defaults to us-east-1
+```
+
+Or configure in `.env`:
+
+```env
+VECTOR_STORE=s3vectors
+S3VECTORS_BUCKET_NAME=your-bucket-name
+S3VECTORS_INDEX_NAME=mem0
+AWS_REGION=us-east-1
+```
+
+**Required IAM Permissions (least privilege):**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:CreateIndex",
+        "s3vectors:GetIndex",
+        "s3vectors:DeleteIndex",
+        "s3vectors:PutVectors",
+        "s3vectors:GetVectors",
+        "s3vectors:DeleteVectors",
+        "s3vectors:QueryVectors",
+        "s3vectors:ListVectors"
+      ],
+      "Resource": "arn:aws:s3vectors:*:*:vector-bucket/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:CreateBucket",
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    }
+  ]
+}
+```
+
+> References: [S3 Vectors Security & Access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-security-access.html) | [mem0 S3 Vectors Config](https://docs.mem0.ai/components/vectordbs/dbs/s3_vectors)
+
+#### Migrating from OpenSearch to S3Vectors
+
+If you are already using OpenSearch for memory storage, use `migrate_to_s3vectors.py` to migrate data to S3Vectors.
+
+**Prerequisites:** Both OpenSearch and S3Vectors environment variables must be configured simultaneously (keep OpenSearch config in `.env` and also set `S3VECTORS_BUCKET_NAME`, etc.).
+
+```bash
+# Migrate all users' memories
+python3 migrate_to_s3vectors.py
+
+# Migrate a specific user only
+python3 migrate_to_s3vectors.py --user boss
+
+# Specific user and agent
+python3 migrate_to_s3vectors.py --user boss --agent dev
+
+# Dry-run mode (preview only, no writes)
+python3 migrate_to_s3vectors.py --dry-run
+```
+
+> ⚠️ **Safety note**: The migration does NOT delete source data in OpenSearch. Verify S3Vectors data integrity before manually cleaning up OpenSearch.
 
 ## Migrating Existing Memories
 
@@ -481,12 +576,12 @@ mem0-memory-service/
 │   └── SKILL.md            # OpenClaw Skill definition
 ├── migrate_memory_md.py    # MEMORY.md migration tool
 ├── test_connection.py      # Connectivity test
-├── auto_digest.py          # Auto-extract short-term memories from diary (hourly)
-├── session_snapshot.py     # Real-time session conversation saving (every 15 min)
+├── auto_digest.py          # Auto-extract short-term memories from diary (every 15 min)
+├── session_snapshot.py     # Real-time session conversation saving (every 5 min)
 ├── archive.py              # Short-term memory auto-archival (daily)
 ├── systemd/
 │   ├── mem0-snapshot.service   # systemd service
-│   ├── mem0-snapshot.timer     # systemd timer (every 15 min)
+│   ├── mem0-snapshot.timer     # systemd timer (every 5 min)
 │   └── ...                 # Other systemd units
 ├── mem0-memory.service     # systemd service template
 ├── requirements.txt        # Python dependencies
@@ -505,6 +600,12 @@ When using AWS Bedrock + OpenSearch, mem0 has two known bugs. We have submitted 
 | Converse API temperature + top_p conflict (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Pending merge |
 
 Manual patching is required before the PRs are merged. See [PATCHES.md](./PATCHES.md) for details.
+
+## One-Line AI Deploy Prompt
+
+Send the following prompt to your AI assistant to auto-deploy:
+
+> Deploy the mem0 Memory Service for me. Repo: https://github.com/norrishuang/mem0-memory-service . Clone the code, install Python dependencies (`pip3 install -r requirements.txt`), copy `.env.example` to `.env` and configure: `VECTOR_STORE` (opensearch or s3vectors), OpenSearch connection info or S3Vectors bucket name, `AWS_REGION`, `EMBEDDING_MODEL`, `LLM_MODEL`. Then run `python3 test_connection.py` to verify connectivity, start with `python3 server.py` (default port 8230), and set up systemd for auto-start.
 
 ## License
 

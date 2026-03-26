@@ -20,6 +20,9 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 # Ensure boto3 picks it up
 os.environ.setdefault("AWS_REGION", AWS_REGION)
 
+# Vector Store selection: "opensearch" (default) or "s3vectors"
+VECTOR_STORE = os.getenv("VECTOR_STORE", "opensearch").lower()
+
 # OpenSearch
 OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST", "localhost")
 OPENSEARCH_PORT = int(os.getenv("OPENSEARCH_PORT", "9200"))
@@ -28,6 +31,10 @@ OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD", "")
 OPENSEARCH_USE_SSL = os.getenv("OPENSEARCH_USE_SSL", "false").lower() == "true"
 OPENSEARCH_VERIFY_CERTS = os.getenv("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true"
 OPENSEARCH_COLLECTION = os.getenv("OPENSEARCH_COLLECTION", "mem0_memories")
+
+# S3Vectors
+S3VECTORS_BUCKET_NAME = os.getenv("S3VECTORS_BUCKET_NAME", "")
+S3VECTORS_INDEX_NAME = os.getenv("S3VECTORS_INDEX_NAME", "mem0")
 
 # Embedding
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
@@ -43,21 +50,40 @@ SERVICE_HOST = os.getenv("SERVICE_HOST", "0.0.0.0")
 SERVICE_PORT = int(os.getenv("SERVICE_PORT", "8230"))
 
 
+def _get_vector_store_config() -> dict:
+    """Build vector_store config based on VECTOR_STORE env var."""
+    if VECTOR_STORE == "s3vectors":
+        if not S3VECTORS_BUCKET_NAME:
+            raise ValueError("S3VECTORS_BUCKET_NAME is required when VECTOR_STORE=s3vectors")
+        return {
+            "provider": "s3_vectors",
+            "config": {
+                "vector_bucket_name": S3VECTORS_BUCKET_NAME,
+                "collection_name": S3VECTORS_INDEX_NAME,
+                "embedding_model_dims": EMBEDDING_DIMS,
+                "distance_metric": "cosine",
+                "region_name": AWS_REGION,
+            },
+        }
+    # Default: opensearch
+    return {
+        "provider": "opensearch",
+        "config": {
+            "collection_name": OPENSEARCH_COLLECTION,
+            "host": OPENSEARCH_HOST,
+            "port": OPENSEARCH_PORT,
+            "http_auth": (OPENSEARCH_USER, OPENSEARCH_PASSWORD),
+            "embedding_model_dims": EMBEDDING_DIMS,
+            "use_ssl": OPENSEARCH_USE_SSL,
+            "verify_certs": OPENSEARCH_VERIFY_CERTS,
+        },
+    }
+
+
 def get_mem0_config() -> dict:
     """Build mem0 config dict from settings."""
     return {
-        "vector_store": {
-            "provider": "opensearch",
-            "config": {
-                "collection_name": OPENSEARCH_COLLECTION,
-                "host": OPENSEARCH_HOST,
-                "port": OPENSEARCH_PORT,
-                "http_auth": (OPENSEARCH_USER, OPENSEARCH_PASSWORD),
-                "embedding_model_dims": EMBEDDING_DIMS,
-                "use_ssl": OPENSEARCH_USE_SSL,
-                "verify_certs": OPENSEARCH_VERIFY_CERTS,
-            },
-        },
+        "vector_store": _get_vector_store_config(),
         "embedder": {
             "provider": "aws_bedrock",
             "config": {

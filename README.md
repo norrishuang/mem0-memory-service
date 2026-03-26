@@ -57,6 +57,8 @@ OpenClaw Agents (dev, main, ...)
 ┌──────────────────────┐
 │  OpenSearch           │  向量存储 (k-NN)
 │  (self-hosted / AWS)  │
+│  ── 或 ──            │
+│  Amazon S3 Vectors    │  低成本向量存储
 └──────────────────────┘
 ```
 
@@ -210,7 +212,7 @@ python3 cli.py search --user me --agent dev --query "关键词" \
 
 ### 自动短期记忆提取
 
-`auto_digest.py` 脚本可以每小时自动从日记文件中提取短期事件，并存入 mem0（`run_id=YYYY-MM-DD`）。
+`auto_digest.py` 脚本可以每 15 分钟自动从日记文件中提取短期事件，并存入 mem0（`run_id=YYYY-MM-DD`）。
 
 #### 工作原理
 
@@ -221,20 +223,20 @@ python3 cli.py search --user me --agent dev --query "关键词" \
 
 #### 配置定时任务
 
-使用 cron 每小时自动运行：
+使用 cron 每 15 分钟自动运行：
 
 ```bash
 # 编辑 crontab
 crontab -e
 
-# 添加以下行（每小时整点执行）
-0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
+# 添加以下行（每 15 分钟执行）
+*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
 ```
 
 或者使用以下命令一键添加：
 
 ```bash
-(crontab -l 2>/dev/null; echo "# 每小时自动从日记提取短期记忆"; echo "0 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "# 每 15 分钟自动从日记提取短期记忆"; echo "*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
 ```
 
 #### 手动运行和测试
@@ -260,7 +262,7 @@ python3 cli.py list --user boss --agent dev | grep short_term
 
 ### 实时会话快照
 
-`session_snapshot.py` 脚本每 15 分钟自动保存当前活跃 session 的对话到日记文件，解决 session 压缩导致最近对话丢失的问题。
+`session_snapshot.py` 脚本每 5 分钟自动保存当前活跃 session 的对话到日记文件，解决 session 压缩导致最近对话丢失的问题。
 
 #### 工作原理
 
@@ -291,13 +293,13 @@ python3 session_snapshot.py
 #### 为什么需要这个？
 
 - **问题**：OpenClaw 的 session 会话可能因为上下文过长而"压缩"，压缩前的对话历史可能丢失
-- **解决**：每 15 分钟保存一次，确保最多丢失 15 分钟的对话
+- **解决**：每 5 分钟保存一次，确保最多丢失 5 分钟的对话
 
 #### 文件说明
 
 - **`session_snapshot.py`**：主脚本
 - **`systemd/mem0-snapshot.service`**：systemd service 单元
-- **`systemd/mem0-snapshot.timer`**：systemd timer 单元（每 15 分钟执行）
+- **`systemd/mem0-snapshot.timer`**：systemd timer 单元（每 5 分钟执行）
 
 ### 自定义配置
 
@@ -444,16 +446,109 @@ curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=dev&run_id=2026-03-2
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `AWS_REGION` | `us-east-1` | AWS 区域 |
+| `VECTOR_STORE` | `opensearch` | 向量引擎：`opensearch` 或 `s3vectors` |
 | `OPENSEARCH_HOST` | `localhost` | OpenSearch 地址 |
 | `OPENSEARCH_PORT` | `9200` | 端口 |
 | `OPENSEARCH_USER` | `admin` | 用户名 |
 | `OPENSEARCH_PASSWORD` | - | 密码 |
 | `OPENSEARCH_USE_SSL` | `false` | 是否使用 SSL |
 | `OPENSEARCH_COLLECTION` | `mem0_memories` | 索引名 |
+| `S3VECTORS_BUCKET_NAME` | - | S3Vectors bucket 名称（`s3vectors` 模式必填） |
+| `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors 向量索引名称 |
 | `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding 模型 |
 | `EMBEDDING_DIMS` | `1024` | 向量维度 |
 | `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-...` | LLM 模型 |
 | `SERVICE_PORT` | `8230` | 服务端口 |
+
+### Vector Store 配置
+
+#### OpenSearch（默认）
+
+默认使用 OpenSearch 作为向量引擎，无需额外配置。确保 `.env` 中 OpenSearch 相关变量正确即可：
+
+```bash
+VECTOR_STORE=opensearch
+OPENSEARCH_HOST=your-opensearch-host.es.amazonaws.com
+OPENSEARCH_PORT=443
+OPENSEARCH_USER=admin
+OPENSEARCH_PASSWORD=your-password
+OPENSEARCH_USE_SSL=true
+```
+
+#### AWS S3 Vectors
+
+[Amazon S3 Vectors](https://aws.amazon.com/s3/features/vectors/) 是 AWS 提供的低成本向量存储服务，具有 S3 级别的弹性和持久性，支持亚秒级查询。
+
+**配置方式：**
+
+```bash
+export VECTOR_STORE=s3vectors
+export S3VECTORS_BUCKET_NAME=your-bucket-name
+export S3VECTORS_INDEX_NAME=mem0          # 可选，默认 mem0
+export AWS_REGION=us-east-1               # 可选，默认 us-east-1
+```
+
+或在 `.env` 文件中配置：
+
+```env
+VECTOR_STORE=s3vectors
+S3VECTORS_BUCKET_NAME=your-bucket-name
+S3VECTORS_INDEX_NAME=mem0
+AWS_REGION=us-east-1
+```
+
+**所需 IAM 权限（最小权限原则）：**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:CreateIndex",
+        "s3vectors:GetIndex",
+        "s3vectors:DeleteIndex",
+        "s3vectors:PutVectors",
+        "s3vectors:GetVectors",
+        "s3vectors:DeleteVectors",
+        "s3vectors:QueryVectors",
+        "s3vectors:ListVectors"
+      ],
+      "Resource": "arn:aws:s3vectors:*:*:vector-bucket/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:CreateBucket",
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    }
+  ]
+}
+```
+
+> 参考文档：[S3 Vectors Security & Access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-security-access.html) | [mem0 S3 Vectors 配置](https://docs.mem0.ai/components/vectordbs/dbs/s3_vectors)
+
+#### 从 OpenSearch 迁移到 S3Vectors
+
+如果你已经在使用 OpenSearch 存储记忆，可以使用 `migrate_to_s3vectors.py` 将数据迁移到 S3Vectors。
+
+**前提条件：** 需要同时配置 OpenSearch 和 S3Vectors 的环境变量（`.env` 中保留 OpenSearch 配置，同时设置 `S3VECTORS_BUCKET_NAME` 等）。
+
+```bash
+# 迁移所有用户的记忆
+python3 migrate_to_s3vectors.py
+
+# 只迁移指定用户
+python3 migrate_to_s3vectors.py --user boss
+
+# 指定用户和 agent
+python3 migrate_to_s3vectors.py --user boss --agent dev
+
+# dry-run 模式（只预览，不写入）
+python3 migrate_to_s3vectors.py --dry-run
+```
+
+> ⚠️ **安全提示**：迁移过程不会删除 OpenSearch 中的源数据。确认 S3Vectors 数据完整后，再手动清理 OpenSearch。
 
 ## 迁移现有记忆
 
@@ -479,12 +574,12 @@ mem0-memory-service/
 │   └── SKILL.md            # OpenClaw Skill 定义
 ├── migrate_memory_md.py    # MEMORY.md 迁移工具
 ├── test_connection.py      # 连通性测试
-├── auto_digest.py          # 自动从日记提取短期记忆（每小时）
-├── session_snapshot.py     # 实时保存session对话到日记（每15分钟）
+├── auto_digest.py          # 自动从日记提取短期记忆（每15分钟）
+├── session_snapshot.py     # 实时保存session对话到日记（每5分钟）
 ├── archive.py              # 短期记忆自动归档（每天）
 ├── systemd/
 │   ├── mem0-snapshot.service   # systemd service
-│   ├── mem0-snapshot.timer     # systemd timer (每15分钟)
+│   ├── mem0-snapshot.timer     # systemd timer (每5分钟)
 │   └── ...                 # 其他 systemd 单元
 ├── mem0-memory.service     # systemd 服务模板
 ├── requirements.txt        # Python 依赖
@@ -503,6 +598,12 @@ mem0-memory-service/
 | Converse API temperature + top_p 冲突 (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | 待合并 |
 
 在 PR 合并前需要手动 patch，详见 [PATCHES.md](./PATCHES.md)。
+
+## 一键 AI 部署提示词
+
+将以下提示词发送给你的 AI 助手，即可自动完成部署：
+
+> 帮我部署 mem0 Memory Service。代码仓库：https://github.com/norrishuang/mem0-memory-service 。请 clone 代码，安装 Python 依赖（`pip3 install -r requirements.txt`），复制 `.env.example` 为 `.env` 并配置以下关键项：`VECTOR_STORE`（opensearch 或 s3vectors）、OpenSearch 连接信息或 S3Vectors bucket 名称、`AWS_REGION`、`EMBEDDING_MODEL`、`LLM_MODEL`。配置完成后运行 `python3 test_connection.py` 测试连通性，然后用 `python3 server.py` 启动服务（默认端口 8230），并设置 systemd 开机自启。
 
 ## License
 
