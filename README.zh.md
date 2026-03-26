@@ -719,7 +719,7 @@ mem0-memory-service/
 | 问题 | PR | 状态 |
 |------|-----|------|
 | OpenSearch 3.x nmslib 引擎废弃 | [#4392](https://github.com/mem0ai/mem0/pull/4392) | 待合并 |
-| Converse API temperature + top_p 冲突 (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | 待合并 |
+| Converse API temperature + top_p 冲突 (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | ✅ Merged via [#4469](https://github.com/mem0ai/mem0/pull/4469) |
 | S3Vectors `query_vectors` filter 格式错误 | [#4554](https://github.com/mem0ai/mem0/pull/4554) | 待合并 |
 
 在 PR 合并前需要手动 patch，详见 [PATCHES.md](./PATCHES.md)。

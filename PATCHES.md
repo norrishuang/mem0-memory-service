@@ -18,6 +18,8 @@ sed -i 's/"engine": "nmslib"/"engine": "lucene"/g' <path>
 
 ## Patch 2: Bedrock Converse API temperature + top_p 冲突
 
+> ✅ **已解决**：此问题已通过 upstream PR [#4469](https://github.com/mem0ai/mem0/pull/4469) 修复（2026-03-25 合并）。`pip install --upgrade mem0ai` 即可，无需手动 patch。
+
 - **问题**: Claude Haiku 4.5 等新模型不允许同时传 `temperature` 和 `top_p`，mem0 默认 `top_p=0.9` 导致 `ValidationException`
 - **PR**: [mem0ai/mem0#4393](https://github.com/mem0ai/mem0/pull/4393)
 - **修复**: `top_p` 默认值改为 `None`，Converse API 调用仅在用户显式设置时才传 `topP`

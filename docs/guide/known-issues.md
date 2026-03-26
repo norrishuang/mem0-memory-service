@@ -7,7 +7,7 @@ mem0 has 3 known upstream bugs that affect AWS Bedrock + OpenSearch / S3 Vectors
 | Issue | PR | Affects | Status |
 |-------|----|---------|--------|
 | OpenSearch 3.x `nmslib` engine deprecated | [#4392](https://github.com/mem0ai/mem0/pull/4392) | OpenSearch 3.0+ | Pending merge |
-| Converse API `temperature` + `top_p` conflict | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Claude Haiku 4.5 and newer models | Pending merge |
+| Converse API `temperature` + `top_p` conflict | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Claude Haiku 4.5 and newer models | ✅ Merged via [#4469](https://github.com/mem0ai/mem0/pull/4469) |
 | S3Vectors invalid filter format | [#4554](https://github.com/mem0ai/mem0/pull/4554) | S3 Vectors backend | Pending merge |
 
 ## PR #4392: OpenSearch 3.x nmslib Engine Deprecated
@@ -25,6 +25,8 @@ sed -i 's/"engine": "nmslib"/"engine": "lucene"/g' <path>
 ```
 
 ## PR #4393: Converse API temperature + top_p Conflict
+
+> ✅ **Resolved**: Fixed in upstream via [PR #4469](https://github.com/mem0ai/mem0/pull/4469) (merged 2025-03-25). Run `pip install --upgrade mem0ai` — no manual patch needed.
 
 Claude Haiku 4.5 and newer models reject requests that include both `temperature` and `top_p` simultaneously. mem0 defaults `top_p=0.9`, causing `ValidationException` on Bedrock Converse API calls.
 
