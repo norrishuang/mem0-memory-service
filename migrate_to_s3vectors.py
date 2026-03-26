@@ -97,7 +97,11 @@ def fetch_memories(src, user_id=None, agent_id=None):
 
 
 def migrate(src, dst, memories, dry_run=False):
-    """Migrate memories from src to dst. Returns (success, failed_list)."""
+    """Migrate memories from src to dst. Returns (success, failed_list).
+
+    Writes directly to the vector store, bypassing mem0's add() which
+    triggers a QueryVectors dedup search with an invalid filter format.
+    """
     total = len(memories)
     success = 0
     failed = []
@@ -114,18 +118,19 @@ def migrate(src, dst, memories, dry_run=False):
             success += 1
         else:
             try:
-                kwargs = {}
-                if mem.get("user_id"):
-                    kwargs["user_id"] = mem["user_id"]
-                if mem.get("agent_id"):
-                    kwargs["agent_id"] = mem["agent_id"]
-                if mem.get("run_id"):
-                    kwargs["run_id"] = mem["run_id"]
                 metadata = mem.get("metadata") or {}
                 metadata["migrated_from"] = "opensearch"
-                kwargs["metadata"] = metadata
+                if mem.get("user_id"):
+                    metadata["user_id"] = mem["user_id"]
+                if mem.get("agent_id"):
+                    metadata["agent_id"] = mem["agent_id"]
+                if mem.get("run_id"):
+                    metadata["run_id"] = mem["run_id"]
+                metadata["data"] = text
 
-                dst.add(text, **kwargs)
+                vector = dst.embedding_model.embed(text, "add")
+                mem_id = mem.get("id") or str(__import__('uuid').uuid4())
+                dst.vector_store.insert(vectors=[vector], payloads=[metadata], ids=[mem_id])
                 success += 1
             except Exception as e:
                 logger.error(f"[{i+1}/{total}] Failed id={mem.get('id')}: {e}")
