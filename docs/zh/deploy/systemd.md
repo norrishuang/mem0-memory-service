@@ -1,21 +1,21 @@
-# systemd Deployment
+# systemd 部署
 
-The service uses systemd for process management and scheduled tasks.
+服务使用 systemd 进行进程管理和定时任务调度。
 
-## Main Service
+## 主服务
 
 ```bash
 sudo cp mem0-memory.service /etc/systemd/system/
-# Edit User/WorkingDirectory/EnvironmentFile paths as needed
+# 根据需要编辑 User/WorkingDirectory/EnvironmentFile 路径
 sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-memory
 ```
 
-## Scheduled Tasks
+## 定时任务
 
-### Session Snapshot (every 5 minutes)
+### 会话快照（每 5 分钟）
 
-Saves current active session conversations to diary files, preventing data loss from session compression.
+将当前活跃会话的对话保存到日记文件，防止会话压缩导致数据丢失。
 
 ```bash
 mkdir -p ~/.config/systemd/user/
@@ -26,18 +26,18 @@ systemctl --user daemon-reload
 systemctl --user enable --now mem0-snapshot.timer
 ```
 
-### Auto Digest (every 15 minutes)
+### 自动摘要（每 15 分钟）
 
-Extracts short-term events from diary files and stores them in mem0 with `run_id=YYYY-MM-DD`.
+从日记文件中提取短期事件，以 `run_id=YYYY-MM-DD` 的形式存入 mem0。
 
 ```bash
-# Using cron
+# 使用 cron
 (crontab -l 2>/dev/null; echo "*/15 * * * * /usr/bin/python3 /path/to/auto_digest.py >> /path/to/auto_digest.log 2>&1") | crontab -
 ```
 
-### Archive (daily at UTC 02:00)
+### 归档（每天 UTC 02:00）
 
-Processes short-term memories older than 7 days — active topics are upgraded to long-term, inactive ones are deleted.
+处理超过 7 天的短期记忆 — 活跃主题升级为长期记忆，不活跃的则删除。
 
 ```bash
 sudo cp mem0-archive.service /etc/systemd/system/
@@ -47,26 +47,26 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-archive.timer
 ```
 
-### Verify Timers
+### 验证定时器
 
 ```bash
-# Check timer status
+# 检查定时器状态
 systemctl --user list-timers mem0-snapshot.timer
 sudo systemctl list-timers mem0-archive.timer
 
-# Manually trigger
+# 手动触发
 systemctl --user start mem0-snapshot.service
 sudo systemctl start mem0-archive.service
 
-# View logs
+# 查看日志
 journalctl --user -u mem0-snapshot.service -f
 journalctl -u mem0-archive.service -f
 ```
 
-## Task Summary
+## 任务总览
 
-| Task | Frequency | Method | Purpose |
+| 任务 | 频率 | 方式 | 用途 |
 |------|-----------|--------|---------|
-| `session_snapshot.py` | Every 5 min | systemd user timer | Save session conversations to diary |
-| `auto_digest.py` | Every 15 min | cron | Extract short-term memories from diary |
-| `archive.py` | Daily 02:00 UTC | systemd system timer | Archive/delete old short-term memories |
+| `session_snapshot.py` | 每 5 分钟 | systemd 用户定时器 | 保存会话对话到日记 |
+| `auto_digest.py` | 每 15 分钟 | cron | 从日记中提取短期记忆 |
+| `archive.py` | 每天 02:00 UTC | systemd 系统定时器 | 归档/删除过期短期记忆 |

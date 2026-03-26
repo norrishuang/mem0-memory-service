@@ -1,41 +1,41 @@
-# Migration Tool
+# 迁移工具
 
 ## OpenSearch → S3 Vectors
 
-Use `migrate_to_s3vectors.py` to migrate existing memories from OpenSearch to S3Vectors.
+使用 `migrate_to_s3vectors.py` 将现有记忆从 OpenSearch 迁移到 S3Vectors。
 
-### Prerequisites
+### 前提条件
 
-Both OpenSearch and S3Vectors environment variables must be configured simultaneously — keep OpenSearch config in `.env` and also set `S3VECTORS_BUCKET_NAME`.
+需要同时配置 OpenSearch 和 S3Vectors 的环境变量 — 在 `.env` 中保留 OpenSearch 配置，同时设置 `S3VECTORS_BUCKET_NAME`。
 
-### Usage
+### 用法
 
 ```bash
-# Migrate all users' memories
+# 迁移所有用户的记忆
 python3 migrate_to_s3vectors.py
 
-# Migrate a specific user only
+# 仅迁移指定用户
 python3 migrate_to_s3vectors.py --user boss
 
-# Specific user and agent
+# 指定用户和代理
 python3 migrate_to_s3vectors.py --user boss --agent dev
 
-# Dry-run mode (preview only, no writes)
+# 试运行模式（仅预览，不写入）
 python3 migrate_to_s3vectors.py --dry-run
 ```
 
-::: warning Safety Note
-The migration does **not** delete source data in OpenSearch. Verify S3Vectors data integrity before manually cleaning up OpenSearch.
+::: warning 安全提示
+迁移过程**不会**删除 OpenSearch 中的源数据。请在验证 S3Vectors 数据完整性后，再手动清理 OpenSearch。
 :::
 
 ## MEMORY.md → mem0
 
-If you previously used `MEMORY.md` to manage memories, migrate to mem0:
+如果你之前使用 `MEMORY.md` 管理记忆，可以迁移到 mem0：
 
 ```bash
-# Edit MEMORY_FILE path, USER_ID, AGENT_ID in the script
+# 编辑脚本中的 MEMORY_FILE 路径、USER_ID、AGENT_ID
 vim migrate_memory_md.py
 
-# Run migration
+# 执行迁移
 python3 migrate_memory_md.py
 ```

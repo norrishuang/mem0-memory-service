@@ -1,22 +1,22 @@
-# REST API Reference
+# REST API 参考
 
-The Memory Service runs a FastAPI server on port `8230` by default.
+Memory Service 运行一个 FastAPI 服务器，默认端口为 `8230`。
 
-## Endpoints
+## 接口列表
 
-| Method | Path | Description |
+| 方法 | 路径 | 说明 |
 |--------|------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/memory/add` | Add memory |
-| `POST` | `/memory/search` | Semantic search |
-| `POST` | `/memory/search_combined` | Combined search (long-term + recent short-term) |
-| `GET` | `/memory/list` | List memories |
-| `GET` | `/memory/{id}` | Get a single memory |
-| `PUT` | `/memory/update` | Update memory |
-| `DELETE` | `/memory/{id}` | Delete memory |
-| `GET` | `/memory/history/{id}` | Memory change history |
+| `GET` | `/health` | 健康检查 |
+| `POST` | `/memory/add` | 添加记忆 |
+| `POST` | `/memory/search` | 语义搜索 |
+| `POST` | `/memory/search_combined` | 组合搜索（长期 + 近期短期记忆） |
+| `GET` | `/memory/list` | 列出记忆 |
+| `GET` | `/memory/{id}` | 获取单条记忆 |
+| `PUT` | `/memory/update` | 更新记忆 |
+| `DELETE` | `/memory/{id}` | 删除记忆 |
+| `GET` | `/memory/history/{id}` | 记忆变更历史 |
 
-## Health Check
+## 健康检查
 
 ```bash
 curl http://127.0.0.1:8230/health
@@ -26,39 +26,39 @@ curl http://127.0.0.1:8230/health
 {"status": "ok", "service": "mem0-memory-service"}
 ```
 
-## Add Memory
+## 添加记忆
 
 ```bash
-# Long-term memory (text)
+# 长期记忆（文本）
 curl -X POST http://127.0.0.1:8230/memory/add \
   -H 'Content-Type: application/json' \
   -d '{"user_id":"me","agent_id":"dev","text":"Important lesson..."}'
 
-# Short-term memory (with run_id)
+# 短期记忆（带 run_id）
 curl -X POST http://127.0.0.1:8230/memory/add \
   -H 'Content-Type: application/json' \
   -d '{"user_id":"me","agent_id":"dev","run_id":"2026-03-23","text":"Today discussion..."}'
 
-# From conversation messages
+# 从对话消息添加
 curl -X POST http://127.0.0.1:8230/memory/add \
   -H 'Content-Type: application/json' \
   -d '{"user_id":"me","agent_id":"dev","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}'
 ```
 
-**Request body:**
+**请求体：**
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 说明 |
 |-------|------|----------|-------------|
-| `user_id` | string | ✅ | User identifier |
-| `agent_id` | string | | Agent identifier |
-| `run_id` | string | | Run ID for short-term memory (`YYYY-MM-DD`) |
-| `text` | string | ✅* | Raw text to memorize |
-| `messages` | array | ✅* | Conversation messages `[{role, content}]` |
-| `metadata` | object | | Extra metadata tags |
+| `user_id` | string | ✅ | 用户标识 |
+| `agent_id` | string | | 代理标识 |
+| `run_id` | string | | 短期记忆的运行 ID（`YYYY-MM-DD`） |
+| `text` | string | ✅* | 要记忆的原始文本 |
+| `messages` | array | ✅* | 对话消息 `[{role, content}]` |
+| `metadata` | object | | 额外元数据标签 |
 
-\* Either `text` or `messages` is required.
+\* `text` 或 `messages` 二选一，必须提供其一。
 
-## Search
+## 搜索
 
 ```bash
 curl -X POST http://127.0.0.1:8230/memory/search \
@@ -66,9 +66,9 @@ curl -X POST http://127.0.0.1:8230/memory/search \
   -d '{"query":"keywords","user_id":"me","agent_id":"dev","top_k":5}'
 ```
 
-## Combined Search
+## 组合搜索
 
-Searches long-term memory + recent N days of short-term memory, merged and deduplicated.
+搜索长期记忆 + 最近 N 天的短期记忆，合并去重后返回。
 
 ```bash
 curl -X POST http://127.0.0.1:8230/memory/search_combined \
@@ -76,32 +76,32 @@ curl -X POST http://127.0.0.1:8230/memory/search_combined \
   -d '{"query":"keywords","user_id":"me","agent_id":"dev","top_k":10,"recent_days":7}'
 ```
 
-## List Memories
+## 列出记忆
 
 ```bash
-# All memories for a user
+# 列出用户的所有记忆
 curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=dev'
 
-# Short-term memories for a specific date
+# 列出指定日期的短期记忆
 curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=dev&run_id=2026-03-23'
 ```
 
-## Get / Update / Delete
+## 获取 / 更新 / 删除
 
 ```bash
-# Get
+# 获取
 curl http://127.0.0.1:8230/memory/<memory_id>
 
-# Update
+# 更新
 curl -X PUT http://127.0.0.1:8230/memory/update \
   -H 'Content-Type: application/json' \
   -d '{"memory_id":"<id>","text":"Updated text"}'
 
-# Delete
+# 删除
 curl -X DELETE http://127.0.0.1:8230/memory/<memory_id>
 ```
 
-## Memory History
+## 记忆历史
 
 ```bash
 curl http://127.0.0.1:8230/memory/history/<memory_id>

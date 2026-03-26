@@ -1,38 +1,38 @@
-# Configuration
+# 配置
 
-All configuration is managed through environment variables or a `.env` file. The `install.sh` script auto-generates it.
+所有配置通过环境变量或 `.env` 文件管理。`install.sh` 脚本会自动生成该文件。
 
-## Setup
+## 设置
 
 ```bash
 cp .env.example .env
 vim .env
 ```
 
-## Environment Variables
+## 环境变量
 
-| Variable | Default | Description |
+| 变量 | 默认值 | 说明 |
 |----------|---------|-------------|
-| `AWS_REGION` | `us-east-1` | AWS region |
-| `VECTOR_STORE` | `opensearch` | Vector engine: `opensearch` or `s3vectors` |
-| `OPENSEARCH_HOST` | `localhost` | OpenSearch host |
-| `OPENSEARCH_PORT` | `9200` | OpenSearch port |
-| `OPENSEARCH_USER` | `admin` | Username |
-| `OPENSEARCH_PASSWORD` | — | Password |
-| `OPENSEARCH_USE_SSL` | `false` | Enable SSL |
-| `OPENSEARCH_VERIFY_CERTS` | `false` | Verify SSL certificates |
-| `OPENSEARCH_COLLECTION` | `mem0_memories` | Index name |
-| `S3VECTORS_BUCKET_NAME` | — | S3Vectors bucket (required for `s3vectors` mode) |
-| `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors index name |
-| `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding model |
-| `EMBEDDING_DIMS` | `1024` | Vector dimensions |
-| `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-20241022-v1:0` | LLM model |
-| `LLM_TEMPERATURE` | `0.1` | LLM temperature |
-| `LLM_MAX_TOKENS` | `2000` | Max tokens |
-| `SERVICE_HOST` | `0.0.0.0` | Service bind address |
-| `SERVICE_PORT` | `8230` | Service port |
+| `AWS_REGION` | `us-east-1` | AWS 区域 |
+| `VECTOR_STORE` | `opensearch` | 向量引擎：`opensearch` 或 `s3vectors` |
+| `OPENSEARCH_HOST` | `localhost` | OpenSearch 主机地址 |
+| `OPENSEARCH_PORT` | `9200` | OpenSearch 端口 |
+| `OPENSEARCH_USER` | `admin` | 用户名 |
+| `OPENSEARCH_PASSWORD` | — | 密码 |
+| `OPENSEARCH_USE_SSL` | `false` | 启用 SSL |
+| `OPENSEARCH_VERIFY_CERTS` | `false` | 验证 SSL 证书 |
+| `OPENSEARCH_COLLECTION` | `mem0_memories` | 索引名称 |
+| `S3VECTORS_BUCKET_NAME` | — | S3Vectors 存储桶（`s3vectors` 模式必填） |
+| `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors 索引名称 |
+| `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | 嵌入模型 |
+| `EMBEDDING_DIMS` | `1024` | 向量维度 |
+| `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-20241022-v1:0` | LLM 模型 |
+| `LLM_TEMPERATURE` | `0.1` | LLM 温度参数 |
+| `LLM_MAX_TOKENS` | `2000` | 最大 token 数 |
+| `SERVICE_HOST` | `0.0.0.0` | 服务绑定地址 |
+| `SERVICE_PORT` | `8230` | 服务端口 |
 
-## Example `.env`
+## `.env` 示例
 
 ```env
 AWS_REGION=us-east-1
@@ -57,10 +57,10 @@ SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8230
 ```
 
-## Data Isolation
+## 数据隔离
 
-Two-dimensional isolation using `user_id` + `agent_id`:
+使用 `user_id` + `agent_id` 进行二维隔离：
 
-- **user_id** — different users' memories are completely isolated
-- **agent_id** — different agents of the same user manage memories independently
-- Omitting `agent_id` allows cross-agent retrieval
+- **user_id** — 不同用户的记忆完全隔离
+- **agent_id** — 同一用户的不同代理独立管理记忆
+- 省略 `agent_id` 可实现跨代理检索

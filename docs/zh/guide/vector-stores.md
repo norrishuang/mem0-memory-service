@@ -1,10 +1,10 @@
-# Vector Stores
+# 向量存储
 
-mem0 Memory Service supports two vector store backends. Switch between them with the `VECTOR_STORE` environment variable.
+mem0 Memory Service 支持两种向量存储后端。通过 `VECTOR_STORE` 环境变量进行切换。
 
-## OpenSearch (Default)
+## OpenSearch（默认）
 
-OpenSearch is the default vector engine. Requires a cluster with the k-NN plugin enabled (2.x or 3.x).
+OpenSearch 是默认的向量引擎。需要启用 k-NN 插件的集群（2.x 或 3.x）。
 
 ```env
 VECTOR_STORE=opensearch
@@ -17,9 +17,9 @@ OPENSEARCH_USE_SSL=true
 
 ## AWS S3 Vectors
 
-[Amazon S3 Vectors](https://aws.amazon.com/s3/features/vectors/) is a cost-optimized vector storage service from AWS with S3-level elasticity and durability, supporting sub-second query performance.
+[Amazon S3 Vectors](https://aws.amazon.com/s3/features/vectors/) 是 AWS 推出的低成本向量存储服务，具备 S3 级别的弹性和持久性，支持亚秒级查询性能。
 
-### Configuration
+### 配置
 
 ```env
 VECTOR_STORE=s3vectors
@@ -28,9 +28,9 @@ S3VECTORS_INDEX_NAME=mem0
 AWS_REGION=us-east-1
 ```
 
-### Required IAM Permissions
+### 所需 IAM 权限
 
-Least-privilege policy:
+最小权限策略：
 
 ```json
 {
@@ -59,7 +59,7 @@ Least-privilege policy:
 }
 ```
 
-::: tip References
-- [S3 Vectors Security & Access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-security-access.html)
-- [mem0 S3 Vectors Config](https://docs.mem0.ai/components/vectordbs/dbs/s3_vectors)
+::: tip 参考资料
+- [S3 Vectors 安全与访问控制](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-security-access.html)
+- [mem0 S3 Vectors 配置](https://docs.mem0.ai/components/vectordbs/dbs/s3_vectors)
 :::
