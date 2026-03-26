@@ -528,6 +528,28 @@ AWS_REGION=us-east-1
 
 > 参考文档：[S3 Vectors Security & Access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-security-access.html) | [mem0 S3 Vectors 配置](https://docs.mem0.ai/components/vectordbs/dbs/s3_vectors)
 
+#### 从 OpenSearch 迁移到 S3Vectors
+
+如果你已经在使用 OpenSearch 存储记忆，可以使用 `migrate_to_s3vectors.py` 将数据迁移到 S3Vectors。
+
+**前提条件：** 需要同时配置 OpenSearch 和 S3Vectors 的环境变量（`.env` 中保留 OpenSearch 配置，同时设置 `S3VECTORS_BUCKET_NAME` 等）。
+
+```bash
+# 迁移所有用户的记忆
+python3 migrate_to_s3vectors.py
+
+# 只迁移指定用户
+python3 migrate_to_s3vectors.py --user boss
+
+# 指定用户和 agent
+python3 migrate_to_s3vectors.py --user boss --agent dev
+
+# dry-run 模式（只预览，不写入）
+python3 migrate_to_s3vectors.py --dry-run
+```
+
+> ⚠️ **安全提示**：迁移过程不会删除 OpenSearch 中的源数据。确认 S3Vectors 数据完整后，再手动清理 OpenSearch。
+
 ## 迁移现有记忆
 
 如果你之前使用 `MEMORY.md` 管理记忆，可以一键迁移到 mem0：
