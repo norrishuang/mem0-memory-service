@@ -2,7 +2,7 @@
 
 ## Overview
 
-mem0 Memory Service is a unified memory layer based on [mem0](https://github.com/mem0ai/mem0), providing persistent semantic memory storage for AI agents.
+mem0 Memory Service for OpenClaw is a unified memory layer based on [mem0](https://github.com/mem0ai/mem0), providing persistent semantic memory storage for AI agents.
 
 Agents can automatically store and retrieve memories through conversations, without manual file management.
 

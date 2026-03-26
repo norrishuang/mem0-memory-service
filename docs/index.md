@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: "mem0 Memory Service"
+  name: "mem0 Memory Service for OpenClaw"
   text: "Persistent Semantic Memory for AI Agents"
   tagline: Long-term & short-term memory management powered by mem0, OpenSearch and AWS S3 Vectors
   actions:

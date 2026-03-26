@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  title: 'mem0 Memory Service',
+  title: 'mem0 Memory Service for OpenClaw',
   description: 'Unified persistent semantic memory service for AI agents, powered by mem0',
   base: '/mem0-memory-service/',
   themeConfig: {

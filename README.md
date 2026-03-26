@@ -1,4 +1,4 @@
-# mem0 Memory Service
+# mem0 Memory Service for OpenClaw
 
 [中文文档](./README.zh.md) | **English**
 
@@ -152,7 +152,7 @@ The Agent will automatically clone the code, run the install script, and configu
 
 Send the following prompt to your AI assistant to auto-deploy:
 
-> Deploy the mem0 Memory Service for me. Repo: https://github.com/norrishuang/mem0-memory-service . Clone the code, install Python dependencies (`pip3 install -r requirements.txt`), copy `.env.example` to `.env` and configure: `VECTOR_STORE` (opensearch or s3vectors), OpenSearch connection info or S3Vectors bucket name, `AWS_REGION`, `EMBEDDING_MODEL`, `LLM_MODEL`. Then run `python3 test_connection.py` to verify connectivity, start with `python3 server.py` (default port 8230), and set up systemd for auto-start.
+> Deploy the mem0 Memory Service for OpenClaw for me. Repo: https://github.com/norrishuang/mem0-memory-service . Clone the code, install Python dependencies (`pip3 install -r requirements.txt`), copy `.env.example` to `.env` and configure: `VECTOR_STORE` (opensearch or s3vectors), OpenSearch connection info or S3Vectors bucket name, `AWS_REGION`, `EMBEDDING_MODEL`, `LLM_MODEL`. Then run `python3 test_connection.py` to verify connectivity, start with `python3 server.py` (default port 8230), and set up systemd for auto-start.
 
 ## Usage
 
