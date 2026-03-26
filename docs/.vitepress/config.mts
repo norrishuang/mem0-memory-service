@@ -15,13 +15,36 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: '指南', link: '/zh/guide/getting-started' },
+          { text: 'API', link: '/api/cli' },
           { text: 'GitHub', link: 'https://github.com/norrishuang/mem0-memory-service' }
         ],
         sidebar: [
           {
-            text: '指南',
+            text: '快速开始',
             items: [
-              { text: '快速开始', link: '/zh/guide/getting-started' },
+              { text: '安装与部署', link: '/zh/guide/getting-started' },
+              { text: '配置说明', link: '/guide/configuration' },
+            ]
+          },
+          {
+            text: '向量存储',
+            items: [
+              { text: 'OpenSearch（默认）', link: '/guide/vector-stores' },
+              { text: 'AWS S3 Vectors', link: '/guide/vector-stores#aws-s3-vectors' },
+              { text: '数据迁移工具', link: '/guide/migration' },
+            ]
+          },
+          {
+            text: '部署运维',
+            items: [
+              { text: 'systemd 配置', link: '/deploy/systemd' },
+            ]
+          },
+          {
+            text: 'API 参考',
+            items: [
+              { text: 'CLI 命令', link: '/api/cli' },
+              { text: 'REST 接口', link: '/api/server' },
             ]
           }
         ]
