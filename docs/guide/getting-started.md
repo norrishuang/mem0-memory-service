@@ -49,7 +49,7 @@ OpenClaw Agents (dev, main, ...)
 - **Python 3.9+**
 - **OpenSearch** cluster (2.x or 3.x, k-NN plugin required) or **AWS S3 Vectors**
 - **AWS Bedrock** access (or modify `config.py` for other LLM/Embedder providers)
-- **Amazon Bedrock IAM permissions** — the deployment server needs `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` for the Embedding and LLM models. See [README](../../README.md#amazon-bedrock-permissions) for the minimum IAM policy example.
+- **Amazon Bedrock IAM permissions** — the deployment server needs `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` for the Embedding and LLM models. See [README](https://github.com/norrishuang/mem0-memory-service#amazon-bedrock-permissions) for the minimum IAM policy example.
 
 ## Installation
 
@@ -181,7 +181,7 @@ Send the following prompt to your AI assistant to auto-deploy:
 
 ### Known Issues
 
-If using **S3Vectors** as the vector backend, you must apply a filter format patch before use. See [PATCHES.md](../../PATCHES.md) for details.
+If using **S3Vectors** as the vector backend, you must apply a filter format patch before use. See [PATCHES.md](https://github.com/norrishuang/mem0-memory-service/blob/main/PATCHES.md) for details.
 
 ```bash
 python3 patch_s3vectors_filter.py

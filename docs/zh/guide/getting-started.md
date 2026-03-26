@@ -47,7 +47,7 @@ OpenClaw Agents (dev, main, ...)
 - **Python 3.9+**
 - **OpenSearch** 集群（2.x 或 3.x，需启用 k-NN 插件）或 **AWS S3 Vectors**
 - **AWS Bedrock** 访问权限（或修改 `config.py` 使用其他 LLM/Embedder）
-- **Amazon Bedrock IAM 权限** — 部署服务器需要 `bedrock:InvokeModel` 和 `bedrock:InvokeModelWithResponseStream` 权限。最小 IAM 策略示例参见 [README](../../README.zh.md#amazon-bedrock-权限)。
+- **Amazon Bedrock IAM 权限** — 部署服务器需要 `bedrock:InvokeModel` 和 `bedrock:InvokeModelWithResponseStream` 权限。最小 IAM 策略示例参见 [README](https://github.com/norrishuang/mem0-memory-service/blob/main/README.zh.md#amazon-bedrock-权限)。
 
 ## 安装
 
@@ -179,7 +179,7 @@ systemctl --user enable --now mem0-snapshot.timer
 
 ### 已知问题
 
-如果使用 **S3Vectors** 作为向量后端，必须在使用前应用 filter 格式 patch。详见 [PATCHES.md](../../PATCHES.md)。
+如果使用 **S3Vectors** 作为向量后端，必须在使用前应用 filter 格式 patch。详见 [PATCHES.md](https://github.com/norrishuang/mem0-memory-service/blob/main/PATCHES.md)。
 
 ```bash
 python3 patch_s3vectors_filter.py
