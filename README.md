@@ -57,6 +57,8 @@ OpenClaw Agents (dev, main, ...)
 ┌──────────────────────┐
 │  OpenSearch           │  向量存储 (k-NN)
 │  (self-hosted / AWS)  │
+│  ── 或 ──            │
+│  Amazon S3 Vectors    │  低成本向量存储
 └──────────────────────┘
 ```
 
@@ -444,16 +446,87 @@ curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=dev&run_id=2026-03-2
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `AWS_REGION` | `us-east-1` | AWS 区域 |
+| `VECTOR_STORE` | `opensearch` | 向量引擎：`opensearch` 或 `s3vectors` |
 | `OPENSEARCH_HOST` | `localhost` | OpenSearch 地址 |
 | `OPENSEARCH_PORT` | `9200` | 端口 |
 | `OPENSEARCH_USER` | `admin` | 用户名 |
 | `OPENSEARCH_PASSWORD` | - | 密码 |
 | `OPENSEARCH_USE_SSL` | `false` | 是否使用 SSL |
 | `OPENSEARCH_COLLECTION` | `mem0_memories` | 索引名 |
+| `S3VECTORS_BUCKET_NAME` | - | S3Vectors bucket 名称（`s3vectors` 模式必填） |
+| `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors 向量索引名称 |
 | `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding 模型 |
 | `EMBEDDING_DIMS` | `1024` | 向量维度 |
 | `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-...` | LLM 模型 |
 | `SERVICE_PORT` | `8230` | 服务端口 |
+
+### Vector Store 配置
+
+#### OpenSearch（默认）
+
+默认使用 OpenSearch 作为向量引擎，无需额外配置。确保 `.env` 中 OpenSearch 相关变量正确即可：
+
+```bash
+VECTOR_STORE=opensearch
+OPENSEARCH_HOST=your-opensearch-host.es.amazonaws.com
+OPENSEARCH_PORT=443
+OPENSEARCH_USER=admin
+OPENSEARCH_PASSWORD=your-password
+OPENSEARCH_USE_SSL=true
+```
+
+#### AWS S3 Vectors
+
+[Amazon S3 Vectors](https://aws.amazon.com/s3/features/vectors/) 是 AWS 提供的低成本向量存储服务，具有 S3 级别的弹性和持久性，支持亚秒级查询。
+
+**配置方式：**
+
+```bash
+export VECTOR_STORE=s3vectors
+export S3VECTORS_BUCKET_NAME=your-bucket-name
+export S3VECTORS_INDEX_NAME=mem0          # 可选，默认 mem0
+export AWS_REGION=us-east-1               # 可选，默认 us-east-1
+```
+
+或在 `.env` 文件中配置：
+
+```env
+VECTOR_STORE=s3vectors
+S3VECTORS_BUCKET_NAME=your-bucket-name
+S3VECTORS_INDEX_NAME=mem0
+AWS_REGION=us-east-1
+```
+
+**所需 IAM 权限（最小权限原则）：**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:CreateIndex",
+        "s3vectors:GetIndex",
+        "s3vectors:DeleteIndex",
+        "s3vectors:PutVectors",
+        "s3vectors:GetVectors",
+        "s3vectors:DeleteVectors",
+        "s3vectors:QueryVectors",
+        "s3vectors:ListVectors"
+      ],
+      "Resource": "arn:aws:s3vectors:*:*:vector-bucket/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:CreateBucket",
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    }
+  ]
+}
+```
+
+> 参考文档：[S3 Vectors Security & Access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-security-access.html) | [mem0 S3 Vectors 配置](https://docs.mem0.ai/components/vectordbs/dbs/s3_vectors)
 
 ## 迁移现有记忆
 
@@ -503,6 +576,12 @@ mem0-memory-service/
 | Converse API temperature + top_p 冲突 (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | 待合并 |
 
 在 PR 合并前需要手动 patch，详见 [PATCHES.md](./PATCHES.md)。
+
+## 一键 AI 部署提示词
+
+将以下提示词发送给你的 AI 助手，即可自动完成部署：
+
+> 帮我部署 mem0 Memory Service。代码仓库：https://github.com/norrishuang/mem0-memory-service 。请 clone 代码，安装 Python 依赖（`pip3 install -r requirements.txt`），复制 `.env.example` 为 `.env` 并配置以下关键项：`VECTOR_STORE`（opensearch 或 s3vectors）、OpenSearch 连接信息或 S3Vectors bucket 名称、`AWS_REGION`、`EMBEDDING_MODEL`、`LLM_MODEL`。配置完成后运行 `python3 test_connection.py` 测试连通性，然后用 `python3 server.py` 启动服务（默认端口 8230），并设置 systemd 开机自启。
 
 ## License
 

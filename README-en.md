@@ -59,6 +59,8 @@ OpenClaw Agents (dev, main, ...)
 ┌──────────────────────┐
 │  OpenSearch           │  Vector store (k-NN)
 │  (self-hosted / AWS)  │
+│  ── or ──            │
+│  Amazon S3 Vectors    │  Cost-optimized vectors
 └──────────────────────┘
 ```
 
@@ -446,16 +448,87 @@ All configuration is managed through environment variables or `.env` file (`inst
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AWS_REGION` | `us-east-1` | AWS region |
+| `VECTOR_STORE` | `opensearch` | Vector engine: `opensearch` or `s3vectors` |
 | `OPENSEARCH_HOST` | `localhost` | OpenSearch host |
 | `OPENSEARCH_PORT` | `9200` | Port |
 | `OPENSEARCH_USER` | `admin` | Username |
 | `OPENSEARCH_PASSWORD` | - | Password |
 | `OPENSEARCH_USE_SSL` | `false` | Whether to use SSL |
 | `OPENSEARCH_COLLECTION` | `mem0_memories` | Index name |
+| `S3VECTORS_BUCKET_NAME` | - | S3Vectors bucket name (required for `s3vectors` mode) |
+| `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors index name |
 | `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding model |
 | `EMBEDDING_DIMS` | `1024` | Vector dimensions |
 | `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-...` | LLM model |
 | `SERVICE_PORT` | `8230` | Service port |
+
+### Vector Store Configuration
+
+#### OpenSearch (Default)
+
+OpenSearch is the default vector engine. Just ensure the OpenSearch variables in `.env` are correct:
+
+```bash
+VECTOR_STORE=opensearch
+OPENSEARCH_HOST=your-opensearch-host.es.amazonaws.com
+OPENSEARCH_PORT=443
+OPENSEARCH_USER=admin
+OPENSEARCH_PASSWORD=your-password
+OPENSEARCH_USE_SSL=true
+```
+
+#### AWS S3 Vectors
+
+[Amazon S3 Vectors](https://aws.amazon.com/s3/features/vectors/) is a cost-optimized vector storage service from AWS with S3-level elasticity and durability, supporting sub-second query performance.
+
+**Configuration:**
+
+```bash
+export VECTOR_STORE=s3vectors
+export S3VECTORS_BUCKET_NAME=your-bucket-name
+export S3VECTORS_INDEX_NAME=mem0          # Optional, defaults to mem0
+export AWS_REGION=us-east-1               # Optional, defaults to us-east-1
+```
+
+Or configure in `.env`:
+
+```env
+VECTOR_STORE=s3vectors
+S3VECTORS_BUCKET_NAME=your-bucket-name
+S3VECTORS_INDEX_NAME=mem0
+AWS_REGION=us-east-1
+```
+
+**Required IAM Permissions (least privilege):**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3vectors:CreateIndex",
+        "s3vectors:GetIndex",
+        "s3vectors:DeleteIndex",
+        "s3vectors:PutVectors",
+        "s3vectors:GetVectors",
+        "s3vectors:DeleteVectors",
+        "s3vectors:QueryVectors",
+        "s3vectors:ListVectors"
+      ],
+      "Resource": "arn:aws:s3vectors:*:*:vector-bucket/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:CreateBucket",
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    }
+  ]
+}
+```
+
+> References: [S3 Vectors Security & Access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-security-access.html) | [mem0 S3 Vectors Config](https://docs.mem0.ai/components/vectordbs/dbs/s3_vectors)
 
 ## Migrating Existing Memories
 
@@ -505,6 +578,12 @@ When using AWS Bedrock + OpenSearch, mem0 has two known bugs. We have submitted 
 | Converse API temperature + top_p conflict (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Pending merge |
 
 Manual patching is required before the PRs are merged. See [PATCHES.md](./PATCHES.md) for details.
+
+## One-Line AI Deploy Prompt
+
+Send the following prompt to your AI assistant to auto-deploy:
+
+> Deploy the mem0 Memory Service for me. Repo: https://github.com/norrishuang/mem0-memory-service . Clone the code, install Python dependencies (`pip3 install -r requirements.txt`), copy `.env.example` to `.env` and configure: `VECTOR_STORE` (opensearch or s3vectors), OpenSearch connection info or S3Vectors bucket name, `AWS_REGION`, `EMBEDDING_MODEL`, `LLM_MODEL`. Then run `python3 test_connection.py` to verify connectivity, start with `python3 server.py` (default port 8230), and set up systemd for auto-start.
 
 ## License
 
