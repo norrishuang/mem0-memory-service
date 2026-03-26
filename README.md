@@ -560,6 +560,30 @@ python3 migrate_to_s3vectors.py --dry-run
 
 > ⚠️ **Safety note**: The migration does NOT delete source data in OpenSearch. Verify S3Vectors data integrity before manually cleaning up OpenSearch.
 
+#### Known Issue: Filter Format Patch (Required)
+
+mem0's upstream `s3_vectors.py` has a bug: the filter format passed to the S3Vectors API during `search()` is incorrect, causing `add()` operations to fail with `Invalid query filter` errors. A fix has been submitted as [PR #4554](https://github.com/mem0ai/mem0/pull/4554) but is pending merge.
+
+**Before the PR is merged, you must manually apply the patch:**
+
+```bash
+python3 patch_s3vectors_filter.py
+sudo systemctl restart mem0-memory.service
+```
+
+**Verify the patch is applied correctly:**
+
+```bash
+python3 -c "
+from mem0.vector_stores.s3_vectors import S3Vectors
+vs = S3Vectors.__new__(S3Vectors)
+print(vs._convert_filters({'user_id': 'boss'}))
+# Expected: {'user_id': {'\$eq': 'boss'}}
+"
+```
+
+> ⚠️ This patch modifies the installed mem0 package directly. **You need to re-run the patch after every `pip upgrade mem0ai`.**
+
 ## Migrating Existing Memories
 
 If you previously used `MEMORY.md` to manage memories, you can migrate to mem0 in one step:
@@ -594,6 +618,7 @@ mem0-memory-service/
 ├── mem0-memory.service     # systemd service template
 ├── requirements.txt        # Python dependencies
 ├── .env.example            # Configuration template
+├── patch_s3vectors_filter.py # S3Vectors filter format patch script
 ├── PATCHES.md              # mem0 known issues and patch records
 └── README.md
 ```

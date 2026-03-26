@@ -558,6 +558,30 @@ python3 migrate_to_s3vectors.py --dry-run
 
 > ⚠️ **安全提示**：迁移过程不会删除 OpenSearch 中的源数据。确认 S3Vectors 数据完整后，再手动清理 OpenSearch。
 
+#### 已知问题：Filter 格式 Patch（必须应用）
+
+mem0 上游 `s3_vectors.py` 存在 bug：`search()` 时传给 S3Vectors API 的 filter 格式不正确，导致 `add()` 操作报 `Invalid query filter` 错误。已向上游提交修复 [PR #4554](https://github.com/mem0ai/mem0/pull/4554)，等待合并中。
+
+**在 PR 合并之前，必须手动应用 patch：**
+
+```bash
+python3 patch_s3vectors_filter.py
+sudo systemctl restart mem0-memory.service
+```
+
+**验证 patch 是否生效：**
+
+```bash
+python3 -c "
+from mem0.vector_stores.s3_vectors import S3Vectors
+vs = S3Vectors.__new__(S3Vectors)
+print(vs._convert_filters({'user_id': 'boss'}))
+# 预期输出: {'user_id': {'\$eq': 'boss'}}
+"
+```
+
+> ⚠️ 此 patch 直接修改已安装的 mem0 包。**每次 `pip upgrade mem0ai` 后需要重新执行 patch。**
+
 ## 迁移现有记忆
 
 如果你之前使用 `MEMORY.md` 管理记忆，可以一键迁移到 mem0：
@@ -592,6 +616,7 @@ mem0-memory-service/
 ├── mem0-memory.service     # systemd 服务模板
 ├── requirements.txt        # Python 依赖
 ├── .env.example            # 配置模板
+├── patch_s3vectors_filter.py # S3Vectors filter 格式 patch 脚本
 ├── PATCHES.md              # mem0 已知问题和 patch 记录
 └── README.md
 ```
