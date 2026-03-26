@@ -4,6 +4,30 @@ export default defineConfig({
   title: 'mem0 Memory Service for OpenClaw',
   description: 'Unified persistent semantic memory service for AI agents, powered by mem0',
   base: '/mem0-memory-service/',
+  locales: {
+    root: {
+      label: 'English',
+      lang: 'en',
+    },
+    zh: {
+      label: '中文',
+      lang: 'zh-CN',
+      themeConfig: {
+        nav: [
+          { text: '指南', link: '/zh/guide/getting-started' },
+          { text: 'GitHub', link: 'https://github.com/norrishuang/mem0-memory-service' }
+        ],
+        sidebar: [
+          {
+            text: '指南',
+            items: [
+              { text: '快速开始', link: '/zh/guide/getting-started' },
+            ]
+          }
+        ]
+      }
+    }
+  },
   themeConfig: {
     logo: '🧠',
     nav: [
