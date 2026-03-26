@@ -1,8 +1,8 @@
 # mem0 Memory Service
 
-> **Language**: [English](./README-en.md) | 中文
+> **Language**: 中文 | [English](./README-en.md)
 
-基于 [mem0](https://github.com/mem0ai/mem0) 的统一记忆层，为 [OpenClaw](https://github.com/openclaw/openclaw) Agent 提供持久化语义记忆存储。
+A unified memory layer based on [mem0](https://github.com/mem0ai/mem0), providing persistent semantic memory storage for [OpenClaw](https://github.com/openclaw/openclaw) Agents.
 
 Agent 可以通过对话自动存储和检索记忆，无需手动管理文件。
 
