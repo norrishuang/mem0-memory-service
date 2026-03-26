@@ -24,6 +24,7 @@ export default defineConfig({
             items: [
               { text: '安装与部署', link: '/zh/guide/getting-started' },
               { text: '配置说明', link: '/guide/configuration' },
+              { text: '已知问题与 Patch', link: '/zh/guide/known-issues' },
             ]
           },
           {
@@ -64,6 +65,7 @@ export default defineConfig({
         items: [
           { text: 'Introduction', link: '/guide/getting-started' },
           { text: 'Configuration', link: '/guide/configuration' },
+          { text: 'Known Issues & Patches', link: '/guide/known-issues' },
         ]
       },
       {
