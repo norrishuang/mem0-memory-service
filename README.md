@@ -124,8 +124,8 @@ This service uses Amazon Bedrock to invoke LLM (for memory extraction) and Embed
       ],
       "Resource": [
         "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
-        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-3-5-haiku-20241022-v1:0"
       ]
     }
   ]
@@ -134,7 +134,7 @@ This service uses Amazon Bedrock to invoke LLM (for memory extraction) and Embed
 
 > **Notes:**
 > - Default Embedding model: `amazon.titan-embed-text-v2:0` (1024 dimensions)
-> - Default LLM: Claude Haiku (configurable via `.env`)
+> - Default LLM: Claude Haiku (claude-3-5-haiku-20241022) (configurable via `.env`)
 > - If you change model settings, update the Resource ARNs accordingly
 > - If using cross-region inference profiles (`us.anthropic.claude-*`), include the corresponding profile ARN in Resource
 
@@ -332,22 +332,12 @@ The `auto_digest.py` script automatically extracts short-term events from diary 
 3. **LLM extraction**: Calls AWS Bedrock Claude 3.5 Haiku to extract key short-term events (discussions, task progress, temporary decisions, etc.)
 4. **Write to mem0**: Each event is stored individually, `run_id=today's date`, metadata tags `category=short_term, source=auto_digest`
 
-#### Configure Scheduled Task
-
-Use cron to run automatically every 15 minutes:
+#### Configure Scheduled Task (systemd timer)
 
 ```bash
-# Edit crontab
-crontab -e
-
-# Add the following line (runs every 15 minutes)
-*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
-```
-
-Or use this command to add it in one step:
-
-```bash
-(crontab -l 2>/dev/null; echo "# Auto-extract short-term memories from diary every 15 minutes"; echo "*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
+sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mem0-digest.timer
 ```
 
 #### Manual Run and Testing
@@ -617,6 +607,8 @@ AWS_REGION=us-east-1
     {
       "Effect": "Allow",
       "Action": [
+        "s3vectors:CreateVectorBucket",
+        "s3vectors:GetVectorBucket",
         "s3vectors:CreateIndex",
         "s3vectors:GetIndex",
         "s3vectors:DeleteIndex",
@@ -626,12 +618,7 @@ AWS_REGION=us-east-1
         "s3vectors:QueryVectors",
         "s3vectors:ListVectors"
       ],
-      "Resource": "arn:aws:s3vectors:*:*:vector-bucket/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "s3:CreateBucket",
-      "Resource": "arn:aws:s3:::your-bucket-name"
+      "Resource": "*"
     }
   ]
 }

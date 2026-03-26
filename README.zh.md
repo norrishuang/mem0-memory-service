@@ -122,8 +122,8 @@ OpenClaw Agents (dev, main, ...)
       ],
       "Resource": [
         "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
-        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-3-5-haiku-20241022-v1:0"
       ]
     }
   ]
@@ -132,7 +132,7 @@ OpenClaw Agents (dev, main, ...)
 
 > **说明：**
 > - 默认 Embedding 模型：`amazon.titan-embed-text-v2:0`（1024 维）
-> - 默认 LLM：Claude Haiku（可通过 `.env` 配置修改）
+> - 默认 LLM：Claude Haiku (claude-3-5-haiku-20241022)（可通过 `.env` 配置修改）
 > - 如果修改了模型配置，需要相应调整 Resource ARN
 > - 如果使用跨区域推理 profile（`us.anthropic.claude-*`），Resource 需要包含对应的 profile ARN
 
@@ -330,22 +330,12 @@ python3 cli.py search --user me --agent dev --query "关键词" \
 3. **LLM 提取**：调用 AWS Bedrock Claude 3.5 Haiku 提取关键短期事件（人物讨论、任务进展、临时决策等）
 4. **写入 mem0**：每条事件单独存储，`run_id=当天日期`，元数据标签 `category=short_term, source=auto_digest`
 
-#### 配置定时任务
-
-使用 cron 每 15 分钟自动运行：
+#### 配置定时任务（systemd timer）
 
 ```bash
-# 编辑 crontab
-crontab -e
-
-# 添加以下行（每 15 分钟执行）
-*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1
-```
-
-或者使用以下命令一键添加：
-
-```bash
-(crontab -l 2>/dev/null; echo "# 每 15 分钟自动从日记提取短期记忆"; echo "*/15 * * * * /usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py >> /home/ec2-user/workspace/mem0-memory-service/auto_digest.log 2>&1") | crontab -
+sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mem0-digest.timer
 ```
 
 #### 手动运行和测试
@@ -615,6 +605,8 @@ AWS_REGION=us-east-1
     {
       "Effect": "Allow",
       "Action": [
+        "s3vectors:CreateVectorBucket",
+        "s3vectors:GetVectorBucket",
         "s3vectors:CreateIndex",
         "s3vectors:GetIndex",
         "s3vectors:DeleteIndex",
@@ -624,12 +616,7 @@ AWS_REGION=us-east-1
         "s3vectors:QueryVectors",
         "s3vectors:ListVectors"
       ],
-      "Resource": "arn:aws:s3vectors:*:*:vector-bucket/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "s3:CreateBucket",
-      "Resource": "arn:aws:s3:::your-bucket-name"
+      "Resource": "*"
     }
   ]
 }
