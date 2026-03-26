@@ -146,6 +146,12 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 
 Agent 会自动 clone 代码、运行安装脚本、配置 Skill。
 
+### 方法 4：一键 AI 部署提示词
+
+将以下提示词发送给你的 AI 助手，即可自动完成部署：
+
+> 帮我部署 mem0 Memory Service。代码仓库：https://github.com/norrishuang/mem0-memory-service 。请 clone 代码，安装 Python 依赖（`pip3 install -r requirements.txt`），复制 `.env.example` 为 `.env` 并配置以下关键项：`VECTOR_STORE`（opensearch 或 s3vectors）、OpenSearch 连接信息或 S3Vectors bucket 名称、`AWS_REGION`、`EMBEDDING_MODEL`、`LLM_MODEL`。配置完成后运行 `python3 test_connection.py` 测试连通性，然后用 `python3 server.py` 启动服务（默认端口 8230），并设置 systemd 开机自启。
+
 ## 使用
 
 ### CLI
@@ -600,12 +606,6 @@ mem0-memory-service/
 | Converse API temperature + top_p 冲突 (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | 待合并 |
 
 在 PR 合并前需要手动 patch，详见 [PATCHES.md](./PATCHES.md)。
-
-## 一键 AI 部署提示词
-
-将以下提示词发送给你的 AI 助手，即可自动完成部署：
-
-> 帮我部署 mem0 Memory Service。代码仓库：https://github.com/norrishuang/mem0-memory-service 。请 clone 代码，安装 Python 依赖（`pip3 install -r requirements.txt`），复制 `.env.example` 为 `.env` 并配置以下关键项：`VECTOR_STORE`（opensearch 或 s3vectors）、OpenSearch 连接信息或 S3Vectors bucket 名称、`AWS_REGION`、`EMBEDDING_MODEL`、`LLM_MODEL`。配置完成后运行 `python3 test_connection.py` 测试连通性，然后用 `python3 server.py` 启动服务（默认端口 8230），并设置 systemd 开机自启。
 
 ## License
 

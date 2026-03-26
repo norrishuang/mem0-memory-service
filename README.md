@@ -148,6 +148,12 @@ Simply tell your Agent in a conversation:
 
 The Agent will automatically clone the code, run the install script, and configure the Skill.
 
+### Method 4: One-Line AI Deploy Prompt
+
+Send the following prompt to your AI assistant to auto-deploy:
+
+> Deploy the mem0 Memory Service for me. Repo: https://github.com/norrishuang/mem0-memory-service . Clone the code, install Python dependencies (`pip3 install -r requirements.txt`), copy `.env.example` to `.env` and configure: `VECTOR_STORE` (opensearch or s3vectors), OpenSearch connection info or S3Vectors bucket name, `AWS_REGION`, `EMBEDDING_MODEL`, `LLM_MODEL`. Then run `python3 test_connection.py` to verify connectivity, start with `python3 server.py` (default port 8230), and set up systemd for auto-start.
+
 ## Usage
 
 ### CLI
@@ -602,12 +608,6 @@ When using AWS Bedrock + OpenSearch, mem0 has two known bugs. We have submitted 
 | Converse API temperature + top_p conflict (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Pending merge |
 
 Manual patching is required before the PRs are merged. See [PATCHES.md](./PATCHES.md) for details.
-
-## One-Line AI Deploy Prompt
-
-Send the following prompt to your AI assistant to auto-deploy:
-
-> Deploy the mem0 Memory Service for me. Repo: https://github.com/norrishuang/mem0-memory-service . Clone the code, install Python dependencies (`pip3 install -r requirements.txt`), copy `.env.example` to `.env` and configure: `VECTOR_STORE` (opensearch or s3vectors), OpenSearch connection info or S3Vectors bucket name, `AWS_REGION`, `EMBEDDING_MODEL`, `LLM_MODEL`. Then run `python3 test_connection.py` to verify connectivity, start with `python3 server.py` (default port 8230), and set up systemd for auto-start.
 
 ## License
 
