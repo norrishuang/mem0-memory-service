@@ -190,7 +190,70 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 
 Send the following prompt to your AI assistant to auto-deploy:
 
-> Deploy the mem0 Memory Service for OpenClaw for me. Repo: https://github.com/norrishuang/mem0-memory-service . Clone the code, install Python dependencies (`pip3 install -r requirements.txt`), copy `.env.example` to `.env` and configure: `VECTOR_STORE` (opensearch or s3vectors), OpenSearch connection info or S3Vectors bucket name, `AWS_REGION`, `EMBEDDING_MODEL`, `LLM_MODEL`. Then run `python3 test_connection.py` to verify connectivity, start with `python3 server.py` (default port 8230), and set up systemd for auto-start.
+> Deploy the **mem0 Memory Service for OpenClaw** for me. Repo: https://github.com/norrishuang/mem0-memory-service
+>
+> **Step 1: Clone and install**
+> ```bash
+> git clone https://github.com/norrishuang/mem0-memory-service.git
+> cd mem0-memory-service
+> pip3 install -r requirements.txt
+> ```
+>
+> **Step 2: Configure .env**
+> Copy `.env.example` to `.env` and set:
+> - `VECTOR_STORE`: `opensearch` (default) or `s3vectors`
+> - If OpenSearch: set `OPENSEARCH_HOST`, `OPENSEARCH_PORT`, `OPENSEARCH_INDEX`
+> - If S3Vectors: set `S3VECTORS_BUCKET_NAME`, `S3VECTORS_INDEX_NAME`, `AWS_REGION`
+> - `EMBEDDING_MODEL`: default `amazon.titan-embed-text-v2:0`
+> - `LLM_MODEL`: default `us.anthropic.claude-haiku-4-5-20251001-v1:0`
+>
+> **Step 3: (S3Vectors only) Apply the filter patch**
+> ```bash
+> python3 patch_s3vectors_filter.py
+> ```
+> This patches a known upstream mem0 bug (PR #4554 pending). Re-run after `pip upgrade mem0`.
+>
+> **Step 4: Verify connectivity**
+> ```bash
+> python3 test_connection.py
+> ```
+>
+> **Step 5: Set up systemd service (auto-start)**
+> ```bash
+> sudo cp mem0-memory.service /etc/systemd/system/
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now mem0-memory.service
+> ```
+>
+> **Step 6: Set up memory automation timers**
+>
+> Digest timer (extract memories from diary every 15 min):
+> ```bash
+> sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now mem0-digest.timer
+> ```
+>
+> Archive timer (archive old short-term memories daily):
+> ```bash
+> sudo cp mem0-archive.service mem0-archive.timer /etc/systemd/system/
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now mem0-archive.timer
+> ```
+>
+> Session snapshot timer (capture session conversations every 5 min — run as current user):
+> ```bash
+> mkdir -p ~/.config/systemd/user/
+> cp mem0-snapshot.service mem0-snapshot.timer ~/.config/systemd/user/
+> systemctl --user daemon-reload
+> systemctl --user enable --now mem0-snapshot.timer
+> ```
+>
+> **Step 7: Test write and search**
+> ```bash
+> python3 cli.py add --user me --agent dev --text "mem0 memory service deployed successfully" --metadata '{"category":"experience"}'
+> python3 cli.py search --user me --agent dev --query "deploy"
+> ```
 
 ## Usage
 

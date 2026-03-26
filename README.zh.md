@@ -188,7 +188,70 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 
 将以下提示词发送给你的 AI 助手，即可自动完成部署：
 
-> 帮我部署 mem0 Memory Service for OpenClaw。代码仓库：https://github.com/norrishuang/mem0-memory-service 。请 clone 代码，安装 Python 依赖（`pip3 install -r requirements.txt`），复制 `.env.example` 为 `.env` 并配置以下关键项：`VECTOR_STORE`（opensearch 或 s3vectors）、OpenSearch 连接信息或 S3Vectors bucket 名称、`AWS_REGION`、`EMBEDDING_MODEL`、`LLM_MODEL`。配置完成后运行 `python3 test_connection.py` 测试连通性，然后用 `python3 server.py` 启动服务（默认端口 8230），并设置 systemd 开机自启。
+> 帮我部署 **mem0 Memory Service for OpenClaw**。代码仓库：https://github.com/norrishuang/mem0-memory-service
+>
+> **步骤 1：克隆并安装**
+> ```bash
+> git clone https://github.com/norrishuang/mem0-memory-service.git
+> cd mem0-memory-service
+> pip3 install -r requirements.txt
+> ```
+>
+> **步骤 2：配置 .env**
+> 将 `.env.example` 复制为 `.env` 并设置：
+> - `VECTOR_STORE`：`opensearch`（默认）或 `s3vectors`
+> - 如果用 OpenSearch：设置 `OPENSEARCH_HOST`、`OPENSEARCH_PORT`、`OPENSEARCH_INDEX`
+> - 如果用 S3Vectors：设置 `S3VECTORS_BUCKET_NAME`、`S3VECTORS_INDEX_NAME`、`AWS_REGION`
+> - `EMBEDDING_MODEL`：默认 `amazon.titan-embed-text-v2:0`
+> - `LLM_MODEL`：默认 `us.anthropic.claude-haiku-4-5-20251001-v1:0`
+>
+> **步骤 3：（仅 S3Vectors）应用 filter patch**
+> ```bash
+> python3 patch_s3vectors_filter.py
+> ```
+> 这是修复 mem0 上游已知 bug（PR #4554 待合并）。每次 `pip upgrade mem0` 后需重新执行。
+>
+> **步骤 4：验证连通性**
+> ```bash
+> python3 test_connection.py
+> ```
+>
+> **步骤 5：设置 systemd 服务（开机自启）**
+> ```bash
+> sudo cp mem0-memory.service /etc/systemd/system/
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now mem0-memory.service
+> ```
+>
+> **步骤 6：设置记忆自动化定时器**
+>
+> Digest 定时器（每 15 分钟从日记提取记忆）：
+> ```bash
+> sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now mem0-digest.timer
+> ```
+>
+> Archive 定时器（每天归档过期短期记忆）：
+> ```bash
+> sudo cp mem0-archive.service mem0-archive.timer /etc/systemd/system/
+> sudo systemctl daemon-reload
+> sudo systemctl enable --now mem0-archive.timer
+> ```
+>
+> Session snapshot 定时器（每 5 分钟捕获会话对话 — 以当前用户运行）：
+> ```bash
+> mkdir -p ~/.config/systemd/user/
+> cp mem0-snapshot.service mem0-snapshot.timer ~/.config/systemd/user/
+> systemctl --user daemon-reload
+> systemctl --user enable --now mem0-snapshot.timer
+> ```
+>
+> **步骤 7：测试写入和搜索**
+> ```bash
+> python3 cli.py add --user me --agent dev --text "mem0 memory service deployed successfully" --metadata '{"category":"experience"}'
+> python3 cli.py search --user me --agent dev --query "deploy"
+> ```
 
 ## 使用
 
