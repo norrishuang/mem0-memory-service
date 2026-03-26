@@ -391,8 +391,11 @@ python3 session_snapshot.py
 
 #### 为什么需要这个？
 
-- **问题**：OpenClaw 的 session 会话可能因为上下文过长而"压缩"，压缩前的对话历史可能丢失
-- **解决**：每 5 分钟保存一次，确保最多丢失 5 分钟的对话
+Session 快照解决两个问题：
+
+- **Compaction 防护**：当 session 上下文过长时，OpenClaw 会自动压缩（compact）历史为摘要，压缩前的细节可能丢失。每 5 分钟快照一次，确保压缩前最多 5 分钟的对话未被记录。
+
+- **跨 Session 记忆**（更核心的价值）：OpenClaw 默认每天 4:00 AM 或空闲超时后重置 session，创建全新上下文窗口。没有快照机制，所有对话历史都会消失。有了 快照 → digest → mem0 这条链路，新 session 启动时 Agent 通过 SKILL.md 自动检索相关记忆——上下文在 session 切换间无缝恢复。
 
 #### 文件说明
 

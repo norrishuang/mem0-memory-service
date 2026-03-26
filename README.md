@@ -393,8 +393,11 @@ python3 session_snapshot.py
 
 #### Why Is This Needed?
 
-- **Problem**: OpenClaw sessions may "compress" due to excessive context length, and conversation history before compression may be lost
-- **Solution**: Save every 5 minutes, ensuring at most 5 minutes of conversation is lost
+Session snapshots serve two purposes:
+
+- **Compaction safety**: When a session's context grows too large, OpenClaw compresses (compacts) the history into a summary. Fine-grained details before compaction may be lost. Saving every 5 minutes ensures at most 5 minutes of conversation is unrecorded before compaction.
+
+- **Cross-session memory** (the bigger value): OpenClaw resets the active session daily (default 4:00 AM) or after an idle timeout, starting a fresh context window. Without snapshots, all conversation history would be gone. With snapshots → digest → mem0, when a new session starts the Agent automatically retrieves relevant memories via SKILL.md — so context is seamlessly restored across sessions.
 
 #### File Descriptions
 
