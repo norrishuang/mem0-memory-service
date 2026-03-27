@@ -89,7 +89,7 @@ OpenClaw Agents (agent1, agent2, ...)
 
 **Short-term memory** (with run_id)
 - Daily discussions, temporary decisions, task progress
-- `run_id=YYYY-MM-DD` (Beijing time date)
+- `run_id=YYYY-MM-DD`
 - Auto-archived after 7 days: active topics upgraded to long-term, inactive ones deleted
 - Usage: pass `run_id=<date>` parameter
 
@@ -126,8 +126,8 @@ This service uses Amazon Bedrock to invoke LLM (for memory extraction) and Embed
       ],
       "Resource": [
         "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
-        "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
-        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0"
       ]
     }
   ]
@@ -136,7 +136,7 @@ This service uses Amazon Bedrock to invoke LLM (for memory extraction) and Embed
 
 > **Notes:**
 > - Default Embedding model: `amazon.titan-embed-text-v2:0` (1024 dimensions)
-> - Default LLM: Claude Haiku (claude-3-5-haiku-20241022) (configurable via `.env`)
+> - Default LLM: Claude Haiku 4.5 (claude-haiku-4-5-20251001) (configurable via `.env`)
 > - If you change model settings, update the Resource ARNs accordingly
 > - If using cross-region inference profiles (`us.anthropic.claude-*`), include the corresponding profile ARN in Resource
 
@@ -227,29 +227,22 @@ Send the following prompt to your AI assistant to auto-deploy:
 > sudo systemctl enable --now mem0-memory.service
 > ```
 >
-> **Step 6: Set up memory automation timers**
+> **Step 6: Set up memory automation timers (run as current user)**
 >
-> Digest timer (extract memories from diary every 15 min):
-> ```bash
-> sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-digest.timer
-> ```
->
-> Archive timer (archive old short-term memories daily):
-> ```bash
-> sudo cp mem0-archive.service mem0-archive.timer /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-archive.timer
-> ```
->
-> Session snapshot timer (capture session conversations every 5 min — run as current user):
+> All four timers run as the current user (not root):
 > ```bash
 > mkdir -p ~/.config/systemd/user/
-> cp mem0-snapshot.service mem0-snapshot.timer ~/.config/systemd/user/
+> cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
+> cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
+> cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
+> cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
 > systemctl --user daemon-reload
 > systemctl --user enable --now mem0-snapshot.timer
+> systemctl --user enable --now mem0-memory-sync.timer
+> systemctl --user enable --now mem0-auto-digest.timer
+> systemctl --user enable --now mem0-archive.timer
 > ```
+> Timer schedule: snapshot every 5 min → memory-sync UTC 01:00 → auto-digest UTC 01:30 → archive UTC 02:00
 >
 > **Step 7: Test write and search**
 > ```bash
@@ -295,7 +288,7 @@ python3 cli.py history --id <memory_id>
 
 #### Short-Term Memory (run_id Based)
 
-Short-term memory uses `run_id=YYYY-MM-DD` (Beijing time date) as identifier, auto-archived after 7 days:
+Short-term memory uses `run_id=YYYY-MM-DD` as identifier, auto-archived after 7 days:
 
 ```bash
 # Add short-term memory (use today's date as run_id)
@@ -325,21 +318,23 @@ python3 cli.py search --user me --agent agent1 --query "keywords" \
 
 ### Automatic Short-Term Memory Extraction
 
-The `auto_digest.py` script automatically extracts short-term events from diary files every 15 minutes and stores them in mem0 (`run_id=YYYY-MM-DD`).
+The `auto_digest.py` script runs once daily at UTC 01:30, processes **yesterday's complete diary**, and stores extracted events in mem0 as short-term memory.
 
 #### How It Works
 
-1. **Read diary files**: Reads today's diary (`YYYY-MM-DD.md`, Beijing time UTC+8) from each agent's workspace. Agent workspace paths are automatically resolved from `openclaw.json` — no hardcoded paths required. Agents whose workspace is configured outside the default `workspace-{name}` pattern (e.g. `main`) are correctly handled.
-2. **Incremental processing**: Tracks file read offsets via `.digest_state.json`, only processes new content
-3. **LLM extraction**: Calls AWS Bedrock Claude 3.5 Haiku to extract key short-term events (discussions, task progress, temporary decisions, etc.)
-4. **Write to mem0**: Each event is stored individually, `run_id=today's date`, metadata tags `category=short_term, source=auto_digest`
+1. **Read yesterday's complete diary**: Reads yesterday's full `YYYY-MM-DD.md` from each agent's workspace. Workspace paths are automatically resolved from `openclaw.json`.
+2. **LLM extraction**: Calls AWS Bedrock Claude Haiku 4.5 to extract key short-term events (discussions, task progress, temporary decisions, etc.) from the full day's diary in one pass.
+3. **Write to mem0**: Each event stored individually, `run_id=yesterday's date`, metadata `category=short_term, source=auto_digest`
+
+> No `.digest_state.json` state file needed. Full-day processing in a single LLM call — 96% fewer calls vs. the previous 15-minute incremental approach.
 
 #### Configure Scheduled Task (systemd timer)
 
 ```bash
-sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-digest.timer
+mkdir -p ~/.config/systemd/user/
+cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now mem0-auto-digest.timer
 ```
 
 #### Manual Run and Testing
@@ -360,7 +355,7 @@ python3 cli.py list --user boss --agent agent1 | grep short_term
 #### File Descriptions
 
 - **`auto_digest.py`**: Main script
-- **`.digest_state.json`**: State file, tracks processed position for each diary file (git ignored)
+- **`.digest_state.json`**: ~~State file, tracks processed position for each diary file~~ (removed — no longer used)
 - **`auto_digest.log`**: Runtime log, append mode (git ignored)
 
 ### Real-Time Session Snapshot
@@ -417,7 +412,7 @@ To modify configuration, edit the following variables in `auto_digest.py`:
 # export OPENCLAW_HOME=/path/to/openclaw/data
 
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"                   # mem0 API URL
-BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"    # LLM model
+BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"    # LLM model
 ```
 
 ### Automatic Short-Term Memory Archival
@@ -435,7 +430,7 @@ The `archive.py` script runs daily to process short-term memories older than 7 d
 #### Configure Scheduled Task (systemd timer)
 
 ```bash
-# Install systemd timer (runs daily at UTC 02:00 / Beijing time 10:00)
+# Install systemd timer (runs daily at UTC 02:00)
 sudo cp mem0-archive.service /etc/systemd/system/
 sudo cp mem0-archive.timer /etc/systemd/system/
 
@@ -566,7 +561,7 @@ All configuration is managed through environment variables or `.env` file (`inst
 | `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors index name |
 | `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding model |
 | `EMBEDDING_DIMS` | `1024` | Vector dimensions |
-| `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-...` | LLM model |
+| `LLM_MODEL` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | LLM model |
 | `SERVICE_PORT` | `8230` | Service port |
 
 ### Vector Store Configuration
@@ -704,7 +699,7 @@ mem0-memory-service/
 │   └── SKILL.md            # OpenClaw Skill definition
 ├── migrate_memory_md.py    # MEMORY.md migration tool
 ├── test_connection.py      # Connectivity test
-├── auto_digest.py          # Auto-extract short-term memories from diary (every 15 min)
+├── auto_digest.py          # Auto-extract short-term memories from diary (daily, yesterday full diary)
 ├── session_snapshot.py     # Real-time session conversation saving (every 5 min)
 ├── archive.py              # Short-term memory auto-archival (daily)
 ├── systemd/
