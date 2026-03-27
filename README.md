@@ -327,7 +327,7 @@ The `auto_digest.py` script automatically extracts short-term events from diary 
 
 #### How It Works
 
-1. **Read diary files**: Reads today's diary (`YYYY-MM-DD.md`, Beijing time UTC+8) from `/home/ec2-user/.openclaw/workspace-{agent}/memory/`
+1. **Read diary files**: Reads today's diary (`YYYY-MM-DD.md`, Beijing time UTC+8) from each agent's workspace. Agent workspace paths are automatically resolved from `openclaw.json` — no hardcoded paths required. Agents whose workspace is configured outside the default `workspace-{name}` pattern (e.g. `main`) are correctly handled.
 2. **Incremental processing**: Tracks file read offsets via `.digest_state.json`, only processes new content
 3. **LLM extraction**: Calls AWS Bedrock Claude 3.5 Haiku to extract key short-term events (discussions, task progress, temporary decisions, etc.)
 4. **Write to mem0**: Each event is stored individually, `run_id=today's date`, metadata tags `category=short_term, source=auto_digest`
@@ -367,10 +367,10 @@ The `session_snapshot.py` script automatically saves conversations from the curr
 
 #### How It Works
 
-1. **Read session files**: Reads the current active session from OpenClaw's session store
+1. **Read session files**: Reads the current active session from OpenClaw's session store. Agent workspace paths are resolved from `openclaw.json`, supporting non-standard workspace locations (e.g. `main` agent)
 2. **Extract messages**: Parses JSONL format, extracts user and AI conversation messages
-3. **Deduplicated writing**: Checks for existing identical content to avoid duplicate writes
-4. **Format organization**: Human messages labeled as Boss, AI messages labeled as Dev
+3. **Content-based deduplication**: Each message line is compared against the full diary file content — only lines not yet recorded are written. The same message is never written twice regardless of how many times the snapshot timer fires.
+4. **Format organization**: Human messages labeled as Boss, AI messages labeled as the agent name
 
 #### Configure Scheduled Task (systemd timer, recommended)
 
@@ -410,7 +410,10 @@ Session snapshots serve two purposes:
 To modify configuration, edit the following variables in `auto_digest.py`:
 
 ```python
-DIARY_DIR = Path("/home/ec2-user/.openclaw/workspace-{agent}/memory/")  # Diary directory
+# Agent workspace paths are auto-resolved from openclaw.json — no manual path config needed.
+# Override the OpenClaw data directory if it's not at the default ~/.openclaw:
+# export OPENCLAW_HOME=/path/to/openclaw/data
+
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"                   # mem0 API URL
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"    # LLM model
 ```
