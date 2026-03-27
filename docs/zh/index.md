@@ -19,7 +19,7 @@ features:
     details: OpenClaw 每次对话都是独立 session，本服务打通 session 之间的隔阂——每 5 分钟自动快照对话，LLM 定期提炼关键事实存入向量库，上下文永不丢失。
   - icon: 🤖
     title: 多 Agent 隔离记忆
-    details: 支持多个 Agent 并行运行（dev / blog / pjm 等），各 Agent 记忆空间完全隔离、互不干扰，自动扫描发现所有 Agent。
+    details: 支持多个 Agent 并行运行（dev / blog / pjm 等），各 Agent 记忆空间完全隔离、互不干扰，自动扫描发现所有 Agent。标记为 `experience` 的记忆自动在所有 Agent 间共享，沉淀团队集体经验。
   - icon: 🔄
     title: 短期 + 长期分层存储
     details: 对话先保存为日记文件（短期），再由 LLM 自动提炼关键事实写入向量库（长期）。7 天后基于活跃度智能归档。
