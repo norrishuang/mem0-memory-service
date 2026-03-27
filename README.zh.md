@@ -87,7 +87,7 @@ OpenClaw Agents (agent1, agent2, ...)
 
 **短期记忆**（有 run_id）
 - 当天讨论、临时决策、任务进展
-- `run_id=YYYY-MM-DD`（北京时间日期）
+- `run_id=YYYY-MM-DD`
 - 7天后自动归档：活跃话题升级为长期，不活跃的删除
 - 用法: 传 `run_id=<日期>` 参数
 
@@ -124,8 +124,8 @@ OpenClaw Agents (agent1, agent2, ...)
       ],
       "Resource": [
         "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
-        "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
-        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:*::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0"
       ]
     }
   ]
@@ -134,7 +134,7 @@ OpenClaw Agents (agent1, agent2, ...)
 
 > **说明：**
 > - 默认 Embedding 模型：`amazon.titan-embed-text-v2:0`（1024 维）
-> - 默认 LLM：Claude Haiku (claude-3-5-haiku-20241022)（可通过 `.env` 配置修改）
+> - 默认 LLM：Claude Haiku 4.5 (claude-haiku-4-5-20251001)（可通过 `.env` 配置修改）
 > - 如果修改了模型配置，需要相应调整 Resource ARN
 > - 如果使用跨区域推理 profile（`us.anthropic.claude-*`），Resource 需要包含对应的 profile ARN
 
@@ -225,29 +225,22 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 > sudo systemctl enable --now mem0-memory.service
 > ```
 >
-> **步骤 6：设置记忆自动化定时器**
+> **步骤 6：设置记忆自动化定时器（以当前用户运行）**
 >
-> Digest 定时器（每 15 分钟从日记提取记忆）：
-> ```bash
-> sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-digest.timer
-> ```
->
-> Archive 定时器（每天归档过期短期记忆）：
-> ```bash
-> sudo cp mem0-archive.service mem0-archive.timer /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-archive.timer
-> ```
->
-> Session snapshot 定时器（每 5 分钟捕获会话对话 — 以当前用户运行）：
+> 全部四个 timer 以当前用户身份运行（不需要 root）：
 > ```bash
 > mkdir -p ~/.config/systemd/user/
-> cp mem0-snapshot.service mem0-snapshot.timer ~/.config/systemd/user/
+> cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
+> cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
+> cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
+> cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
 > systemctl --user daemon-reload
 > systemctl --user enable --now mem0-snapshot.timer
+> systemctl --user enable --now mem0-memory-sync.timer
+> systemctl --user enable --now mem0-auto-digest.timer
+> systemctl --user enable --now mem0-archive.timer
 > ```
+> 时序：snapshot 每 5 分钟 → memory-sync UTC 01:00 → auto-digest UTC 01:30 → archive UTC 02:00
 >
 > **步骤 7：测试写入和搜索**
 > ```bash
@@ -293,7 +286,7 @@ python3 cli.py history --id <memory_id>
 
 #### 短期记忆（基于 run_id）
 
-短期记忆使用 `run_id=YYYY-MM-DD`（北京时间日期）标识，7天后自动归档：
+短期记忆使用 `run_id=YYYY-MM-DD`标识，7天后自动归档：
 
 ```bash
 # 添加短期记忆（用当天日期作为 run_id）
@@ -327,17 +320,19 @@ python3 cli.py search --user me --agent agent1 --query "关键词" \
 
 #### 工作原理
 
-1. **读取日记文件**：从各 Agent 的 workspace 读取今天的日记（`YYYY-MM-DD.md`，按北京时间 UTC+8）。Agent workspace 路径自动从 `openclaw.json` 解析，无需硬编码路径。workspace 不在默认 `workspace-{name}` 目录下的 Agent（如 `main`）也能正确识别。
-2. **增量处理**：通过 `.digest_state.json` 记录文件读取偏移量，只处理新增内容
-3. **LLM 提取**：调用 AWS Bedrock Claude 3.5 Haiku 提取关键短期事件（人物讨论、任务进展、临时决策等）
-4. **写入 mem0**：每条事件单独存储，`run_id=当天日期`，元数据标签 `category=short_term, source=auto_digest`
+1. **读取昨日完整日记**：从各 Agent 的 workspace 读取**昨天**的完整日记（`YYYY-MM-DD.md`）。Agent workspace 路径自动从 `openclaw.json` 解析，无需硬编码路径。
+2. **LLM 提取**：调用 AWS Bedrock Claude Haiku 4.5 一次性提取全天的关键短期事件（人物讨论、任务进展、临时决策等）
+3. **写入 mem0**：每条事件单独存储，`run_id=昨天日期`，元数据标签 `category=short_term, source=auto_digest`
+
+> 不再使用 `.digest_state.json` 增量状态文件，逻辑更简单，每天只调用一次 LLM。
 
 #### 配置定时任务（systemd timer）
 
 ```bash
-sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-digest.timer
+mkdir -p ~/.config/systemd/user/
+cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now mem0-auto-digest.timer
 ```
 
 #### 手动运行和测试
@@ -358,7 +353,7 @@ python3 cli.py list --user boss --agent agent1 | grep short_term
 #### 文件说明
 
 - **`auto_digest.py`**：主脚本
-- **`.digest_state.json`**：状态文件，记录每个日记文件已处理的位置（git 已忽略）
+- **`.digest_state.json`**：~~状态文件，记录已处理位置~~ （已移除，不再使用）
 - **`auto_digest.log`**：运行日志，追加模式（git 已忽略）
 
 ### 实时会话快照
@@ -415,7 +410,7 @@ Session 快照解决两个问题：
 # export OPENCLAW_HOME=/path/to/openclaw/data
 
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"                   # mem0 API 地址
-BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"    # LLM 模型
+BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"    # LLM 模型
 ```
 
 ### 自动归档短期记忆
@@ -433,7 +428,7 @@ BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"    # LLM 模型
 #### 配置定时任务（systemd timer）
 
 ```bash
-# 安装 systemd timer（每天 UTC 02:00 / 北京时间 10:00 运行）
+# 安装 systemd timer（每天 UTC 02:00 运行）
 sudo cp mem0-archive.service /etc/systemd/system/
 sudo cp mem0-archive.timer /etc/systemd/system/
 
@@ -564,7 +559,7 @@ curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=agent1&run_id=2026-0
 | `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors 向量索引名称 |
 | `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding 模型 |
 | `EMBEDDING_DIMS` | `1024` | 向量维度 |
-| `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-...` | LLM 模型 |
+| `LLM_MODEL` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | LLM 模型 |
 | `SERVICE_PORT` | `8230` | 服务端口 |
 
 ### Vector Store 配置
