@@ -25,10 +25,13 @@ features:
     details: Supports OpenSearch (default) and AWS S3 Vectors — switch with a single environment variable
   - icon: ⚡
     title: Real-time Snapshots
-    details: Session conversations auto-captured every 5 minutes, digested into memory every 15 minutes
+    details: Session conversations auto-captured every 5 minutes as a cross-session memory bridge. Distilled into memory once daily for higher quality extraction at 96% lower LLM cost.
   - icon: 🤖
     title: Multi-Agent Support
     details: Isolated memory spaces per agent, with cross-agent search capability. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base.
+  - icon: 🔌
+    title: Zero-Config Agent Onboarding
+    details: Enable the mem0-memory Skill once — every agent automatically inherits memory behavior (diary writing, MEMORY.md maintenance, retrieval). No AGENTS.md edits needed.
   - icon: 🛠️
     title: Simple CLI & REST API
     details: Easy-to-use CLI for all operations, plus a FastAPI REST server for programmatic access
