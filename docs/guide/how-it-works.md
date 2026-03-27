@@ -159,7 +159,44 @@ python3 cli.py add \
 
 ## Session Start: Restoring Context
 
-When a new session starts, the skill instructs the agent to search mem0 for relevant context:
+### Why today's AND yesterday's diary files are both needed
+
+When a new session starts, the skill instructs the agent to read **both diary files** before querying mem0:
+
+```
+Session start
+  ├── Read memory/today.md      ← today's raw diary (real-time, not yet in mem0)
+  ├── Read memory/yesterday.md  ← yesterday's raw diary (coverage gap buffer)
+  └── Search mem0 --combined    ← distilled memories (T+1 after 01:30 digest)
+```
+
+**Why today's diary?**
+`auto_digest.py` runs at UTC 01:30, processing *yesterday's* complete diary. Anything that happened today hasn't been digested yet — it only exists in `memory/today.md`. Reading this file is the only way to recover same-day context after a session reset.
+
+**Why yesterday's diary?**
+There is a coverage gap: the window between yesterday's late-night conversations and when `auto_digest` finishes running (UTC 01:30). For example:
+
+```
+Yesterday 23:50  Important discussion happens → written to memory/yesterday.md
+Today     00:10  Session resets, new session starts
+Today     01:30  auto_digest runs → yesterday's diary enters mem0
+```
+
+If the new session starts before 01:30, mem0 doesn't have last night's content yet. Reading `memory/yesterday.md` directly covers this gap.
+
+**The complete coverage map:**
+
+| Time window | Covered by |
+|-------------|------------|
+| Today (T+0) | `memory/today.md` (real-time) |
+| Yesterday after-midnight to 01:30 | `memory/yesterday.md` (gap buffer) |
+| Yesterday 01:30 onward | mem0 short-term (distilled) |
+| Last 7 days | mem0 short-term (`--combined`) |
+| Older than 7 days | mem0 long-term (archive-promoted) |
+
+All three sources together — today's diary + yesterday's diary + mem0 — create **zero blind spots** across all session reset scenarios.
+
+### mem0 retrieval
 
 ```bash
 # Combined search: long-term + recent 7 days short-term
