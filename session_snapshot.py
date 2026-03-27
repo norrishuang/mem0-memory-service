@@ -16,13 +16,21 @@ import os
 import json
 import logging
 import re
-from datetime import datetime
+import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+import requests
 
 # 配置：优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
 OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
 AGENTS_DIR = OPENCLAW_BASE / "agents"
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
+
+# mem0 配置
+MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
+USER_ID = "boss"
+BJT = timezone(timedelta(hours=8))
 
 # 噪音模式：需要过滤的内容
 NOISE_PATTERNS = [
@@ -176,36 +184,26 @@ def init_memory_file(path: Path, agent_id: str) -> None:
         logger.info(f"Created memory file: {path}")
 
 
-def get_active_session_path(agent_id: str) -> Path:
-    """获取指定 agent 当前活跃的 session 文件路径"""
+def get_active_session_paths(agent_id: str) -> list[tuple[str, Path]]:
+    """返回 [(session_key, session_path), ...] 列表，包含所有活跃 session"""
     session_store = AGENTS_DIR / agent_id / "sessions" / "sessions.json"
     try:
         if not session_store.exists():
-            return None
+            return []
         with open(session_store, 'r') as f:
             data = json.load(f)
 
-        # 尝试找 agent:{agent_id}:main
-        main_key = f"agent:{agent_id}:main"
-        session_data = data.get(main_key, {})
-        session_file = session_data.get('sessionFile')
-        if session_file and Path(session_file).exists():
-            return Path(session_file)
-
-        # 备用：遍历所有 key 找最新的
-        latest_time = 0
-        latest_path = None
+        prefix = f"agent:{agent_id}:"
+        result = []
         for key, val in data.items():
-            if isinstance(val, dict):
+            if key.startswith(prefix) and isinstance(val, dict):
                 sf = val.get('sessionFile')
-                ut = val.get('updatedAt', 0)
-                if sf and Path(sf).exists() and ut > latest_time:
-                    latest_time = ut
-                    latest_path = Path(sf)
-        return latest_path
+                if sf and Path(sf).exists():
+                    result.append((key, Path(sf)))
+        return result
     except Exception as e:
-        logger.debug(f"[{agent_id}] Failed to get session path: {e}")
-        return None
+        logger.debug(f"[{agent_id}] Failed to get session paths: {e}")
+        return []
 
 
 def extract_user_message(text: str) -> str | None:
@@ -277,10 +275,11 @@ def build_message_lines(messages: list, agent_id: str) -> list[str]:
     return lines
 
 
-def write_to_memory(messages: list, path: Path, agent_id: str) -> int:
-    """写入 session 消息到 memory 文件，只写入尚未出现过的新消息行"""
+def write_to_memory(messages: list, path: Path, agent_id: str, session_key: str = "") -> tuple[int, list[dict]]:
+    """写入 session 消息到 memory 文件，只写入尚未出现过的新消息行。
+    返回 (写入行数, 新消息列表)"""
     if not messages:
-        return 0
+        return 0, []
 
     init_memory_file(path, agent_id)
 
@@ -292,23 +291,27 @@ def write_to_memory(messages: list, path: Path, agent_id: str) -> int:
 
     # 过滤掉已经写过的行（不带时间戳，纯内容比较）
     all_lines = build_message_lines(messages, agent_id)
-    new_lines = [line for line in all_lines if line not in existing]
+    new_indices = [i for i, line in enumerate(all_lines) if line not in existing]
+    new_lines = [all_lines[i] for i in new_indices]
 
     if not new_lines:
         logger.debug(f"[{agent_id}] All messages already recorded, skipping")
-        return 0
+        return 0, []
 
     time_marker = datetime.now().strftime("%H:%M")
-    block = f"\n### [{time_marker}] Session snapshot\n" + "\n".join(new_lines) + "\n"
+    label = f" Session {session_key}" if session_key else " Session snapshot"
+    block = f"\n### [{time_marker}]{label}\n" + "\n".join(new_lines) + "\n"
+
+    new_messages = [messages[i] for i in new_indices]
 
     try:
         with open(path, 'a', encoding='utf-8') as f:
             f.write(block)
         logger.info(f"[{agent_id}] Wrote {len(new_lines)} new messages to {path}")
-        return len(new_lines)
+        return len(new_lines), new_messages
     except Exception as e:
         logger.error(f"[{agent_id}] Failed to write: {e}")
-        return 0
+        return 0, []
 
 
 def discover_agents() -> list[str]:
@@ -322,18 +325,50 @@ def discover_agents() -> list[str]:
     return sorted(agents)
 
 
+def write_to_mem0(agent_id: str, new_messages: list[dict], session_key: str, today: str):
+    """把新消息写入 mem0 短期记忆"""
+    payload = {
+        "messages": new_messages,
+        "user_id": USER_ID,
+        "agent_id": agent_id,
+        "run_id": today,
+        "metadata": {"category": "short_term", "source": "snapshot", "session_key": session_key}
+    }
+    resp = requests.post(f"{MEM0_API_URL}/memory/add", json=payload, timeout=60)
+    resp.raise_for_status()
+
+
 def process_agent(agent_id: str) -> None:
-    """处理单个 agent 的 session snapshot"""
-    session_path = get_active_session_path(agent_id)
-    if not session_path:
-        logger.debug(f"[{agent_id}] No active session found")
+    """处理单个 agent 的所有 session snapshot"""
+    sessions = get_active_session_paths(agent_id)
+    if not sessions:
+        logger.debug(f"[{agent_id}] No active sessions found")
         return
 
-    messages = read_session_messages(session_path)
-    if messages:
-        written = write_to_memory(messages, get_today_memory_path(agent_id), agent_id)
-        if written > 0:
-            logger.info(f"[{agent_id}] Snapshot complete: {written} messages")
+    diary_path = get_today_memory_path(agent_id)
+    today = datetime.now(BJT).strftime("%Y-%m-%d")
+    total_written = 0
+
+    for session_key, session_path in sessions:
+        try:
+            logger.info(f"[{agent_id}] Processing session {session_key}")
+            messages = read_session_messages(session_path)
+            if not messages:
+                continue
+
+            written, new_messages = write_to_memory(messages, diary_path, agent_id, session_key)
+            total_written += written
+
+            if written > 0 and new_messages:
+                try:
+                    write_to_mem0(agent_id, new_messages, session_key, today)
+                    logger.info(f"[{agent_id}] New messages written to mem0 (run_id={today}, {len(new_messages)} messages)")
+                except Exception as e:
+                    logger.warning(f"[{agent_id}] mem0 write failed: {e}")
+            else:
+                logger.info(f"[{agent_id}] No new content, skipping mem0 write")
+        except Exception as e:
+            logger.error(f"[{agent_id}] Error processing session {session_key}: {e}")
 
 
 def main():
