@@ -12,7 +12,7 @@ Agents can automatically store and retrieve memories through conversations, with
 
 - **Cross-Session Persistent Memory** — OpenClaw starts every conversation as an isolated session with no built-in memory. This service bridges sessions: every 5 minutes the session snapshot is captured to a diary file, an LLM periodically distills key facts into the vector store, and when a new session starts the Agent automatically retrieves relevant memories — so context is never lost between conversations.
 
-- **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (dev / blog / pjm / pm / prototype / researcher, etc.), each with a fully isolated memory space. Agents are auto-discovered by scanning workspaces — no manual registration required. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base that benefits the whole team.
+- **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (agent1 / agent2 / agent3, etc.), each with a fully isolated memory space. Agents are auto-discovered by scanning workspaces — no manual registration required. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base that benefits the whole team.
 
 - **Short-Term + Long-Term Tiered Storage** — Conversations are first captured as diary files (short-term, archived daily), then an LLM automatically distills key facts into a mem0 vector store (long-term). The pipeline: live session → diary snapshot → LLM extraction → vector memory.
 
@@ -46,7 +46,7 @@ This approach fully leverages mem0's semantic capabilities while solving the lif
 ## Architecture
 
 ```
-OpenClaw Agents (dev, main, ...)
+OpenClaw Agents (agent1, agent2, ...)
         │
         │  HTTP API (localhost:8230)
         ▼
@@ -251,8 +251,8 @@ Send the following prompt to your AI assistant to auto-deploy:
 >
 > **Step 7: Test write and search**
 > ```bash
-> python3 cli.py add --user me --agent dev --text "mem0 memory service deployed successfully" --metadata '{"category":"experience"}'
-> python3 cli.py search --user me --agent dev --query "deploy"
+> python3 cli.py add --user me --agent agent1 --text "mem0 memory service deployed successfully" --metadata '{"category":"experience"}'
+> python3 cli.py search --user me --agent agent1 --query "deploy"
 > ```
 
 ## Usage
@@ -261,29 +261,29 @@ Send the following prompt to your AI assistant to auto-deploy:
 
 ```bash
 # Add long-term memory (technical decisions, lessons learned, etc.)
-python3 cli.py add --user me --agent dev --text "Important lesson learned..." \
+python3 cli.py add --user me --agent agent1 --text "Important lesson learned..." \
   --metadata '{"category":"experience"}'
 
 # Add short-term memory (daily discussions, temporary decisions)
-python3 cli.py add --user me --agent dev --run 2026-03-23 \
+python3 cli.py add --user me --agent agent1 --run 2026-03-23 \
   --text "Today Luke and Zoe discussed the memory system refactoring plan" \
   --metadata '{"category":"short_term"}'
 
 # Conversation messages (mem0 automatically extracts key facts)
-python3 cli.py add --user me --agent dev --run 2026-03-23 \
+python3 cli.py add --user me --agent agent1 --run 2026-03-23 \
   --messages '[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]'
 
 # Semantic search (search long-term or short-term individually)
-python3 cli.py search --user me --agent dev --query "keywords" --top-k 5
+python3 cli.py search --user me --agent agent1 --query "keywords" --top-k 5
 
 # Combined search (long-term + recent 7 days short-term, recommended)
-python3 cli.py search --user me --agent dev --query "keywords" --combined --recent-days 7
+python3 cli.py search --user me --agent agent1 --query "keywords" --combined --recent-days 7
 
 # List all memories
-python3 cli.py list --user me --agent dev
+python3 cli.py list --user me --agent agent1
 
 # List short-term memories for a specific date
-python3 cli.py list --user me --agent dev --run 2026-03-23
+python3 cli.py list --user me --agent agent1 --run 2026-03-23
 
 # Get / Delete / View history
 python3 cli.py get --id <memory_id>
@@ -297,15 +297,15 @@ Short-term memory uses `run_id=YYYY-MM-DD` (Beijing time date) as identifier, au
 
 ```bash
 # Add short-term memory (use today's date as run_id)
-python3 cli.py add --user me --agent dev --run 2026-03-23 \
+python3 cli.py add --user me --agent agent1 --run 2026-03-23 \
   --text "Temporary decisions discussed today..." \
   --metadata '{"category":"short_term"}'
 
 # Search short-term memories for a specific date
-python3 cli.py search --user me --agent dev --run 2026-03-23 --query "discussion"
+python3 cli.py search --user me --agent agent1 --run 2026-03-23 --query "discussion"
 
 # Combined search (long-term + recent 7 days short-term)
-python3 cli.py search --user me --agent dev --query "keywords" \
+python3 cli.py search --user me --agent agent1 --query "keywords" \
   --combined --recent-days 7
 ```
 
@@ -351,8 +351,8 @@ python3 auto_digest.py
 tail -f auto_digest.log
 
 # Verify stored short-term memories
-python3 cli.py search --user boss --agent dev --query "today" --top-k 10
-python3 cli.py list --user boss --agent dev | grep short_term
+python3 cli.py search --user boss --agent agent1 --query "today" --top-k 10
+python3 cli.py list --user boss --agent agent1 | grep short_term
 ```
 
 #### File Descriptions
@@ -410,7 +410,7 @@ Session snapshots serve two purposes:
 To modify configuration, edit the following variables in `auto_digest.py`:
 
 ```python
-DIARY_DIR = Path("/home/ec2-user/.openclaw/workspace-dev/memory/")  # Diary directory
+DIARY_DIR = Path("/home/ec2-user/.openclaw/workspace-{agent}/memory/")  # Diary directory
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"                   # mem0 API URL
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"    # LLM model
 ```
@@ -489,28 +489,28 @@ curl http://127.0.0.1:8230/health
 # Add long-term memory
 curl -X POST http://127.0.0.1:8230/memory/add \
   -H 'Content-Type: application/json' \
-  -d '{"user_id":"me","agent_id":"dev","text":"Important lesson learned..."}'
+  -d '{"user_id":"me","agent_id":"agent1","text":"Important lesson learned..."}'
 
 # Add short-term memory
 curl -X POST http://127.0.0.1:8230/memory/add \
   -H 'Content-Type: application/json' \
-  -d '{"user_id":"me","agent_id":"dev","run_id":"2026-03-23","text":"Today'\''s discussion..."}'
+  -d '{"user_id":"me","agent_id":"agent1","run_id":"2026-03-23","text":"Today'\''s discussion..."}'
 
 # Semantic search (individual search)
 curl -X POST http://127.0.0.1:8230/memory/search \
   -H 'Content-Type: application/json' \
-  -d '{"query":"keywords","user_id":"me","agent_id":"dev","top_k":5}'
+  -d '{"query":"keywords","user_id":"me","agent_id":"agent1","top_k":5}'
 
 # Combined search (long-term + recent 7 days short-term)
 curl -X POST http://127.0.0.1:8230/memory/search_combined \
   -H 'Content-Type: application/json' \
-  -d '{"query":"keywords","user_id":"me","agent_id":"dev","top_k":10,"recent_days":7}'
+  -d '{"query":"keywords","user_id":"me","agent_id":"agent1","top_k":10,"recent_days":7}'
 
 # List memories
-curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=dev'
+curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=agent1'
 
 # List short-term memories for a specific date
-curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=dev&run_id=2026-03-23'
+curl 'http://127.0.0.1:8230/memory/list?user_id=me&agent_id=agent1&run_id=2026-03-23'
 ```
 
 ### Automatic Agent Usage
@@ -643,7 +643,7 @@ python3 migrate_to_s3vectors.py
 python3 migrate_to_s3vectors.py --user boss
 
 # Specific user and agent
-python3 migrate_to_s3vectors.py --user boss --agent dev
+python3 migrate_to_s3vectors.py --user boss --agent agent1
 
 # Dry-run mode (preview only, no writes)
 python3 migrate_to_s3vectors.py --dry-run
