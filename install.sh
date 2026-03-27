@@ -159,11 +159,17 @@ fi
 echo ""
 SKILL_DIR="${HOME}/.openclaw/skills/mem0-memory"
 echo "📝 Installing OpenClaw Skill to ${SKILL_DIR}..."
-mkdir -p "$SKILL_DIR"
+mkdir -p "${SKILL_DIR}/scripts"
 
-# Copy SKILL.md, replacing $MEM0_HOME with actual path
-sed "s|\\\$MEM0_HOME|${SCRIPT_DIR}|g" "${SCRIPT_DIR}/skill/SKILL.md" > "${SKILL_DIR}/SKILL.md"
-echo "   ✅ Skill installed"
+# Copy SKILL.md (no substitution needed — uses {baseDir} which OpenClaw resolves)
+cp "${SCRIPT_DIR}/skill/SKILL.md" "${SKILL_DIR}/SKILL.md"
+
+# Generate mem0.sh wrapper with actual path
+sed "s|\$MEM0_HOME|${SCRIPT_DIR}|g" \
+    "${SCRIPT_DIR}/skill/scripts/mem0.sh.template" \
+    > "${SKILL_DIR}/scripts/mem0.sh"
+chmod +x "${SKILL_DIR}/scripts/mem0.sh"
+echo "   ✅ Skill installed (CLI: ${SKILL_DIR}/scripts/mem0.sh)"
 
 # ─── Done ───
 echo ""
