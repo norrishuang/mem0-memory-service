@@ -209,37 +209,46 @@ def read_session_messages(session_path: Path, max_lines: int = 100) -> list:
         return []
 
 
+def build_message_lines(messages: list, agent_id: str) -> list[str]:
+    """将 messages 转成日记行列表（不含时间戳头部）"""
+    lines = []
+    for msg in messages:
+        role = msg.get('role', 'unknown')
+        content = msg.get('content', '')
+        label = "Boss" if role == "user" else agent_id.capitalize()
+        lines.append(f"- {label}: {content}")
+    return lines
+
+
 def write_to_memory(messages: list, path: Path, agent_id: str) -> int:
-    """写入 session 消息到 memory 文件"""
+    """写入 session 消息到 memory 文件，只写入尚未出现过的新消息行"""
     if not messages:
         return 0
 
     init_memory_file(path, agent_id)
 
-    time_marker = datetime.now().strftime("%H:%M")
-    new_content = f"\n### [{time_marker}] Session snapshot\n"
-
+    # 读取已有内容，用于去重
     try:
         existing = path.read_text(encoding='utf-8')
-        last_text = '\n'.join(existing.split('\n')[-20:])
     except:
-        last_text = ""
+        existing = ""
 
-    for msg in messages:
-        role = msg.get('role', 'unknown')
-        content = msg.get('content', '')
-        label = "Boss" if role == "user" else agent_id.capitalize()
-        new_content += f"- {label}: {content}\n"
+    # 过滤掉已经写过的行（不带时间戳，纯内容比较）
+    all_lines = build_message_lines(messages, agent_id)
+    new_lines = [line for line in all_lines if line not in existing]
 
-    if new_content in last_text:
-        logger.debug(f"[{agent_id}] No new messages to write")
+    if not new_lines:
+        logger.debug(f"[{agent_id}] All messages already recorded, skipping")
         return 0
+
+    time_marker = datetime.now().strftime("%H:%M")
+    block = f"\n### [{time_marker}] Session snapshot\n" + "\n".join(new_lines) + "\n"
 
     try:
         with open(path, 'a', encoding='utf-8') as f:
-            f.write(new_content)
-        logger.info(f"[{agent_id}] Wrote {len(messages)} messages to {path}")
-        return len(messages)
+            f.write(block)
+        logger.info(f"[{agent_id}] Wrote {len(new_lines)} new messages to {path}")
+        return len(new_lines)
     except Exception as e:
         logger.error(f"[{agent_id}] Failed to write: {e}")
         return 0
