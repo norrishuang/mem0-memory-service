@@ -28,7 +28,7 @@ features:
     details: Session conversations auto-captured every 5 minutes, digested into memory every 15 minutes
   - icon: 🤖
     title: Multi-Agent Support
-    details: Isolated memory spaces per agent, with cross-agent search capability
+    details: Isolated memory spaces per agent, with cross-agent search capability. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base.
   - icon: 🛠️
     title: Simple CLI & REST API
     details: Easy-to-use CLI for all operations, plus a FastAPI REST server for programmatic access
