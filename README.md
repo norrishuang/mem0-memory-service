@@ -12,7 +12,7 @@ Agents can automatically store and retrieve memories through conversations, with
 
 - **Cross-Session Persistent Memory** — OpenClaw starts every conversation as an isolated session with no built-in memory. This service bridges sessions: every 5 minutes the session snapshot is captured to a diary file, an LLM periodically distills key facts into the vector store, and when a new session starts the Agent automatically retrieves relevant memories — so context is never lost between conversations.
 
-- **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (dev / blog / pjm / pm / prototype / researcher, etc.), each with a fully isolated memory space. Agents are auto-discovered by scanning workspaces — no manual registration required.
+- **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (dev / blog / pjm / pm / prototype / researcher, etc.), each with a fully isolated memory space. Agents are auto-discovered by scanning workspaces — no manual registration required. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base that benefits the whole team.
 
 - **Short-Term + Long-Term Tiered Storage** — Conversations are first captured as diary files (short-term, archived daily), then an LLM automatically distills key facts into a mem0 vector store (long-term). The pipeline: live session → diary snapshot → LLM extraction → vector memory.
 
