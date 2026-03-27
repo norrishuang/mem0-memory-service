@@ -10,15 +10,17 @@ Agents can automatically store and retrieve memories through conversations, with
 
 ## Features
 
-- **Cross-Session Persistent Memory** — OpenClaw starts every conversation as an isolated session with no built-in memory. This service bridges sessions: every 5 minutes the session snapshot is captured to a diary file, an LLM periodically distills key facts into the vector store, and when a new session starts the Agent automatically retrieves relevant memories — so context is never lost between conversations.
+- **Cross-Session Persistent Memory** — OpenClaw starts every conversation as an isolated session with no built-in memory. This service bridges sessions: every 5 minutes the session snapshot is captured to a diary file, an LLM distills the previous day's complete diary into the vector store each morning, and when a new session starts the Agent automatically retrieves relevant memories — so context is never lost between conversations.
 
-- **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (agent1 / agent2 / agent3, etc.), each with a fully isolated memory space. Agents are auto-discovered by scanning workspaces — no manual registration required. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base that benefits the whole team.
+- **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (agent1 / agent2 / agent3, etc.), each with a fully isolated memory space. Agents are auto-discovered from `openclaw.json` — no manual registration required. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base that benefits the whole team.
 
-- **Short-Term + Long-Term Tiered Storage** — Conversations are first captured as diary files (short-term, archived daily), then an LLM automatically distills key facts into a mem0 vector store (long-term). The pipeline: live session → diary snapshot → LLM extraction → vector memory.
+- **Short-Term + Long-Term Tiered Storage** — Conversations are captured as diary files and distilled into short-term memory daily. Agent-curated `MEMORY.md` files are synced directly to long-term memory. The pipeline: live session → diary snapshot → daily LLM extraction → vector memory.
+
+- **Cost-Optimized Operations** — Daily digest (once per day) vs. the previous incremental approach (every 15 minutes) reduces LLM calls by ~96% while improving memory quality. `MEMORY.md` sync uses hash-based dedup — zero LLM cost if content hasn't changed.
 
 - **Cost-Optimized Vector Storage (S3 Vectors)** — Supports Amazon S3 Vectors as a vector backend, offering dramatically lower cost than self-managed OpenSearch clusters with pay-per-use pricing. OpenSearch is also supported for existing-cluster scenarios.
 
-- **Fully Automated Operations** — systemd timers handle the entire lifecycle: session snapshots every 5 minutes, diary digest every 15 minutes, short-term memory archival daily. Zero manual intervention; services auto-recover on restart.
+- **Fully Automated Operations** — systemd timers handle the entire lifecycle: session snapshots every 5 minutes, MEMORY.md sync at UTC 01:00, diary digest at UTC 01:30, short-term memory archival at UTC 02:00. Zero manual intervention; services auto-recover on restart.
 
 ## Design Philosophy
 
