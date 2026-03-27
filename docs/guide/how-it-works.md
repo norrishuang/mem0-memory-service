@@ -1,0 +1,201 @@
+# How It Works
+
+This page explains the end-to-end memory flow — from a conversation happening to a memory being available in the next session.
+
+## The Core Problem: Sessions Are Stateless
+
+OpenClaw resets the active session daily (default 4:00 AM local time) or after an idle timeout. Every new session starts with a blank context window — no memory of previous conversations.
+
+This is by design: it keeps context fresh and avoids token bloat. But it means agents need an external mechanism to maintain continuity.
+
+**mem0 Memory Service is that mechanism.**
+
+## How Agents Know What to Do: The Skill System
+
+OpenClaw has a built-in skill system. When a skill is enabled, its `SKILL.md` file is automatically injected into the agent's system prompt at session start.
+
+The **mem0-memory** skill's `SKILL.md` contains a `🔴 Agent Memory Behavior` section with explicit behavior rules. When an agent reads these rules, it knows:
+
+- When to write to the diary (`memory/YYYY-MM-DD.md`)
+- When to update `MEMORY.md`
+- How to search and write mem0 via CLI
+
+**This is why no AGENTS.md changes are needed.** Enabling the skill once applies the behavior to every agent, on every session start, automatically.
+
+```
+Skills enabled in OpenClaw Settings
+         │
+         ▼
+SKILL.md injected into system prompt at session start
+         │
+         ▼
+Agent reads "🔴 Agent Memory Behavior" rules
+         │
+         ├─ During conversation → write diary entries
+         └─ During heartbeat   → update MEMORY.md
+```
+
+## Agent Behavior Rules (What the Skill Instructs)
+
+### During Conversations
+
+When any of the following occurs, the agent proactively writes to `memory/YYYY-MM-DD.md`:
+
+| Trigger | Example |
+|---------|---------|
+| Task completed | PR submitted, bug fixed, deployment done |
+| Technical decision made | Why A was chosen over B |
+| Lesson learned / pitfall discovered | Root cause of a failed build |
+| User expressed a preference | "Always reply in Chinese" |
+| Status changed | PR merged, service restarted |
+
+Diary entry format:
+```markdown
+## 14:30
+
+- Fixed session_snapshot dedup bug: changed block-level comparison to line-level content matching
+- PR #7 submitted and merged
+```
+
+### During Heartbeats
+
+On every heartbeat tick, the agent performs memory maintenance in order:
+
+1. **Write diary** — append new session conversations to today's `memory/YYYY-MM-DD.md`
+2. **Review recent files** — skim the last 2–3 days for insights worth keeping long-term
+3. **Update MEMORY.md** — distill durable facts into `MEMORY.md`; prune outdated entries
+
+`MEMORY.md` is the agent's curated knowledge base — project cards, active decisions, key configurations. It's maintained by the agent itself, not by automation scripts.
+
+## The Full Memory Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Conversation                          │
+└────────────────┬──────────────────────┬─────────────────────┘
+                 │                      │
+                 ▼                      ▼
+    Agent writes diary           Agent writes diary
+    (SKILL.md guided,            (session_snapshot fallback,
+     high quality)                every 5 min, auto-captured)
+                 │                      │
+                 └──────────┬───────────┘
+                            ▼
+                  memory/YYYY-MM-DD.md
+                  (raw daily diary file)
+                            │
+              ┌─────────────┼──────────────┐
+              │             │              │
+              ▼             ▼              ▼
+         Heartbeat      UTC 01:30      UTC 01:00
+         (agent        auto_digest    memory_sync
+          self-        (LLM extract   (sync
+          distills)     yesterday)     MEMORY.md)
+              │             │              │
+              ▼             ▼              ▼
+         MEMORY.md     mem0 short-    mem0 long-
+         (updated)     term memory    term memory
+                       (run_id=date)  (no run_id)
+                            │
+                       UTC 02:00
+                        archive
+                            │
+                  ┌─────────┴──────────┐
+                  ▼                    ▼
+            Promoted to           Deleted
+            long-term             (inactive)
+            memory
+```
+
+## Daily Automation Timeline
+
+All automation runs as systemd user timers:
+
+| Time (UTC) | Script | What it does |
+|-----------|--------|--------------|
+| Every 5 min | `session_snapshot.py` | Capture session conversations → diary file |
+| 01:00 | `memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
+| 01:30 | `auto_digest.py` | Extract yesterday's complete diary → mem0 short-term |
+| 02:00 | `archive.py` | Evaluate 7-day-old short-term → promote or delete |
+
+## Two Roles of session_snapshot
+
+`session_snapshot.py` serves two purposes:
+
+**Primary: Cross-Session Memory Bridge**
+Agents reset daily. Without snapshot, conversations would be lost between sessions. Snapshot captures every conversation into diary files, which are then distilled into mem0 by `auto_digest.py`. When a new session starts, the agent retrieves relevant memories from mem0 — restoring context seamlessly.
+
+**Secondary: Compaction Guard**
+When a session's context window grows too large, OpenClaw compresses (compacts) the history. The most recent few minutes of conversation might not survive compaction. Snapshot running every 5 minutes ensures that content is captured to disk before compaction can lose it.
+
+## Two Paths for Writing Diary Files
+
+Because not all agents actively maintain diary files, there are two parallel capture paths:
+
+| Path | Who writes | Quality | When |
+|------|------------|---------|------|
+| **Agent-driven** | Agent itself (SKILL.md guided) | High — curated, meaningful entries | Real-time, during conversation |
+| **Snapshot-driven** | `session_snapshot.py` (automated) | Lower — raw conversation fragments | Every 5 min, regardless of content |
+
+Both paths write to the same `memory/YYYY-MM-DD.md` file. Content-level deduplication ensures no entry is written twice.
+
+**The agent-driven path produces better memories.** Automation is the safety net.
+
+## Three Paths to Long-Term Memory
+
+| Path | Source | Latency | When to use |
+|------|--------|---------|-------------|
+| **memory_sync.py** | `MEMORY.md` | Same day | Agent-curated knowledge, important decisions |
+| **auto_digest + archive** | Daily diary | 7 days | Recurring discussions, gradual context buildup |
+| **Explicit CLI write** | Agent on-demand | Immediate | Time-sensitive facts, mid-conversation decisions |
+
+```bash
+# Explicit write to long-term memory (no --run = long-term)
+python3 cli.py add \
+  --user boss --agent <your-agent-id> \
+  --text "Decided to use S3 Vectors as primary vector store" \
+  --metadata '{"category":"decision"}'
+```
+
+## Session Start: Restoring Context
+
+When a new session starts, the skill instructs the agent to search mem0 for relevant context:
+
+```bash
+# Combined search: long-term + recent 7 days short-term
+python3 cli.py search \
+  --user boss --agent <your-agent-id> \
+  --query "<topic from current conversation>" \
+  --combined --recent-days 7
+```
+
+This gives the agent:
+- Recent discussions (from short-term, last 7 days)
+- Durable knowledge (from long-term: decisions, lessons, preferences)
+- Shared team knowledge (from `category=experience` pool, all agents)
+
+The result: the agent "remembers" relevant context without the user needing to re-explain anything.
+
+## Finding Your Agent ID
+
+All CLI commands use `--agent <your-agent-id>`. Your agent ID is the key under `agents.entries` in `openclaw.json`:
+
+```bash
+cat ~/.openclaw/openclaw.json | python3 -c "
+import json, sys
+config = json.load(sys.stdin)
+entries = config.get('agents', {}).get('entries', {})
+for agent_id, cfg in entries.items():
+    ws = cfg.get('workspace', 'N/A')
+    print(f'  {agent_id}: workspace={ws}')
+"
+```
+
+Example output:
+```
+  main: workspace=/home/user/workspace-main
+  dev:  workspace=/home/user/workspace-dev
+  blog: workspace=/home/user/workspace-blog
+```
+
+Use the key (e.g. `dev`, `main`, `blog`) as your `--agent` value.

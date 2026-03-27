@@ -26,6 +26,7 @@ export default withMermaid(defineConfig({
               text: '快速开始',
               items: [
                 { text: '安装与部署', link: '/zh/guide/getting-started' },
+                { text: '工作原理', link: '/zh/guide/how-it-works' },
                 { text: '系统架构', link: '/zh/guide/architecture' },
                 { text: '配置说明', link: '/zh/guide/configuration' },
                 { text: '已知问题与 Patch', link: '/zh/guide/known-issues' },
@@ -69,6 +70,7 @@ export default withMermaid(defineConfig({
         text: 'Getting Started',
         items: [
           { text: 'Introduction', link: '/guide/getting-started' },
+          { text: 'How It Works', link: '/guide/how-it-works' },
           { text: 'Architecture', link: '/guide/architecture' },
           { text: 'Configuration', link: '/guide/configuration' },
           { text: 'Known Issues & Patches', link: '/guide/known-issues' },

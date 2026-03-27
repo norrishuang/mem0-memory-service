@@ -201,6 +201,8 @@ Then go to **OpenClaw Settings → Skills** and enable `mem0-memory`.
 
 > No need to modify individual `AGENTS.md` files. The skill applies to all agents uniformly.
 
+**Want to understand why this works?** See [How It Works](./how-it-works) for the full explanation of the skill system, memory flow, and agent behavior rules.
+
 ### Known Issues
 
 If using **S3Vectors** as the vector backend, you must apply a filter format patch before use. See [PATCHES.md](https://github.com/norrishuang/mem0-memory-service/blob/main/PATCHES.md) for details.

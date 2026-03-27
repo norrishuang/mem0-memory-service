@@ -199,6 +199,8 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 
 > 无需修改各 Agent 的 `AGENTS.md` 文件。Skill 对所有 Agent 统一生效。
 
+**想了解背后的原理？** 参见[工作原理](./how-it-works)，详细解释了 Skill 系统、记忆流转过程和 Agent 行为规范。
+
 ### 已知问题
 
 如果使用 **S3Vectors** 作为向量后端，必须在使用前应用 filter 格式 patch。详见 [PATCHES.md](https://github.com/norrishuang/mem0-memory-service/blob/main/PATCHES.md)。
