@@ -19,9 +19,10 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-# 配置
-OPENCLAW_BASE = Path("/home/ec2-user/.openclaw/")
+# 配置：优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
+OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
 AGENTS_DIR = OPENCLAW_BASE / "agents"
+OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 
 # 噪音模式：需要过滤的内容
 NOISE_PATTERNS = [
@@ -96,9 +97,65 @@ def clean_content(text: str) -> str:
     return text.strip()
 
 
+def load_agent_workspaces() -> dict[str, Path]:
+    """从 openclaw.json 读取每个 agent 的真实 workspace 路径。
+
+    优先级：
+    1. openclaw.json 中明确配置的 workspace（最权威）
+    2. 回退：扫描 workspace-{agent_id} 目录（兼容旧部署）
+    """
+    mapping: dict[str, Path] = {}
+
+    # 方式1：从 openclaw.json 读取
+    if OPENCLAW_CONFIG.exists():
+        try:
+            with open(OPENCLAW_CONFIG) as f:
+                config = json.load(f)
+
+            def _extract(obj):
+                if isinstance(obj, dict):
+                    if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
+                        ws = Path(obj['workspace'])
+                        mapping[obj['id']] = ws
+                    for v in obj.values():
+                        _extract(v)
+                elif isinstance(obj, list):
+                    for v in obj:
+                        _extract(v)
+
+            _extract(config)
+            logger.debug(f"Loaded {len(mapping)} agent workspaces from openclaw.json: {list(mapping.keys())}")
+        except Exception as e:
+            logger.warning(f"Failed to parse openclaw.json: {e}, falling back to directory scan")
+
+    # 方式2：兜底扫描 workspace-* 目录（openclaw.json 没有或解析失败时）
+    if not mapping and AGENTS_DIR.is_dir():
+        for entry in sorted(AGENTS_DIR.iterdir()):
+            if entry.is_dir():
+                agent_id = entry.name
+                ws = OPENCLAW_BASE / f"workspace-{agent_id}"
+                if ws.is_dir():
+                    mapping[agent_id] = ws
+        logger.debug(f"Fallback scan found {len(mapping)} agents: {list(mapping.keys())}")
+
+    return mapping
+
+
+# 全局 workspace 映射，启动时加载一次
+_AGENT_WORKSPACES: dict[str, Path] = {}
+
+
+def get_agent_workspace(agent_id: str) -> Path | None:
+    """获取指定 agent 的 workspace 路径"""
+    return _AGENT_WORKSPACES.get(agent_id)
+
+
 def get_today_memory_path(agent_id: str) -> Path:
-    """获取今天的日记文件"""
-    workspace = OPENCLAW_BASE / f"workspace-{agent_id}"
+    """获取今天的日记文件路径，自动创建 memory 目录"""
+    workspace = get_agent_workspace(agent_id)
+    if workspace is None:
+        # 兜底
+        workspace = OPENCLAW_BASE / f"workspace-{agent_id}"
     memory_dir = workspace / "memory"
     memory_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
@@ -255,19 +312,14 @@ def write_to_memory(messages: list, path: Path, agent_id: str) -> int:
 
 
 def discover_agents() -> list[str]:
-    """扫描所有 agent 目录，返回有对应 workspace 的 agent_id 列表"""
+    """返回所有有效 agent 列表（workspace 存在且可写）"""
     agents = []
-    if not AGENTS_DIR.is_dir():
-        return agents
-    for entry in sorted(AGENTS_DIR.iterdir()):
-        if entry.is_dir():
-            agent_id = entry.name
-            workspace = OPENCLAW_BASE / f"workspace-{agent_id}"
-            if workspace.is_dir():
-                agents.append(agent_id)
-            else:
-                logger.debug(f"[{agent_id}] No workspace directory, skipping")
-    return agents
+    for agent_id, workspace in _AGENT_WORKSPACES.items():
+        if workspace.exists():
+            agents.append(agent_id)
+        else:
+            logger.debug(f"[{agent_id}] Workspace {workspace} does not exist, skipping")
+    return sorted(agents)
 
 
 def process_agent(agent_id: str) -> None:
@@ -286,6 +338,9 @@ def process_agent(agent_id: str) -> None:
 
 def main():
     """主函数：遍历所有 agent 执行 snapshot"""
+    global _AGENT_WORKSPACES
+    _AGENT_WORKSPACES = load_agent_workspaces()
+
     agents = discover_agents()
     logger.info(f"Discovered {len(agents)} agents with workspaces: {agents}")
 

@@ -325,7 +325,7 @@ python3 cli.py search --user me --agent agent1 --query "关键词" \
 
 #### 工作原理
 
-1. **读取日记文件**：从 `/home/ec2-user/.openclaw/workspace-{agent}/memory/` 读取今天的日记（`YYYY-MM-DD.md`，按北京时间 UTC+8）
+1. **读取日记文件**：从各 Agent 的 workspace 读取今天的日记（`YYYY-MM-DD.md`，按北京时间 UTC+8）。Agent workspace 路径自动从 `openclaw.json` 解析，无需硬编码路径。workspace 不在默认 `workspace-{name}` 目录下的 Agent（如 `main`）也能正确识别。
 2. **增量处理**：通过 `.digest_state.json` 记录文件读取偏移量，只处理新增内容
 3. **LLM 提取**：调用 AWS Bedrock Claude 3.5 Haiku 提取关键短期事件（人物讨论、任务进展、临时决策等）
 4. **写入 mem0**：每条事件单独存储，`run_id=当天日期`，元数据标签 `category=short_term, source=auto_digest`
@@ -365,10 +365,10 @@ python3 cli.py list --user boss --agent agent1 | grep short_term
 
 #### 工作原理
 
-1. **读取 session 文件**：从 OpenClaw 的 session store 读取当前活跃的 session
+1. **读取 session 文件**：从 OpenClaw 的 session store 读取当前活跃的 session。Agent workspace 路径自动从 `openclaw.json` 解析，支持非标准路径配置（如 `main` agent）
 2. **提取消息**：解析 JSONL 格式，提取用户和 AI 的对话消息
-3. **去重写入**：检查是否已存在相同内容，避免重复写入
-4. **格式整理**：human 消息标记为 Boss，AI 消息标记为 Dev
+3. **内容级去重写入**：每条消息行与日记文件全文比对，只写入尚未出现过的行。无论 snapshot 定时器触发多少次，同一条消息不会重复写入
+4. **格式整理**：human 消息标记为 Boss，AI 消息标记为 Agent 名称
 
 #### 配置定时任务（systemd timer，推荐）
 
@@ -408,7 +408,10 @@ Session 快照解决两个问题：
 如需修改配置，编辑 `auto_digest.py` 中的以下变量：
 
 ```python
-DIARY_DIR = Path("/home/ec2-user/.openclaw/workspace-{agent}/memory/")  # 日记目录
+# Agent workspace 路径自动从 openclaw.json 解析，无需手动配置路径。
+# 如果 OpenClaw 数据目录不在默认的 ~/.openclaw，通过环境变量覆盖：
+# export OPENCLAW_HOME=/path/to/openclaw/data
+
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"                   # mem0 API 地址
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"    # LLM 模型
 ```
