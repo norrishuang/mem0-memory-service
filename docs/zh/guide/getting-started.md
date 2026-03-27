@@ -20,7 +20,7 @@ mem0 负责：    语义提取、智能去重、向量检索
 ### 架构
 
 ```
-OpenClaw Agents (dev, main, ...)
+OpenClaw Agents (agent1, agent2, ...)
         │
         │  HTTP API (localhost:8230)
         ▼
@@ -36,7 +36,7 @@ OpenClaw Agents (dev, main, ...)
            │
      ┌─────▼─────┐       ┌──────────────────┐
      │   mem0    │──────▶│  LLM (Bedrock)    │
-     │           │──────▶│  Embedder (Titan)  │
+     │           │──────▶│  Embedder (Titan) │
      └─────┬─────┘       └──────────────────┘
            ▼
    OpenSearch / S3 Vectors
@@ -64,6 +64,7 @@ cd mem0-memory-service
 2. 生成 `.env` 配置文件
 3. 测试 OpenSearch 和 Bedrock 连通性
 4. 创建 systemd 服务（开机自启）
+5. 设置所有自动化定时器
 
 ### 方法 2：手动安装
 
@@ -76,36 +77,36 @@ pip3 install -r requirements.txt
 
 # 2. 配置
 cp .env.example .env
-vim .env  # 填入你的 OpenSearch 和 AWS 配置
+vim .env  # 填入你的 OpenSearch/S3Vectors 和 AWS 配置
 
 # 3. 测试连通性
 python3 test_connection.py
 
 # 4. 启动服务
-python3 server.py
-
-# 5. (可选) 设置 systemd 开机自启
-sudo cp mem0-memory.service /etc/systemd/system/
-# 编辑 service 文件，修改 User/WorkingDirectory/EnvironmentFile 路径
+sudo cp systemd/mem0-memory.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-memory
+sudo systemctl enable --now mem0-memory.service
 
-# 6. 设置记忆自动化定时器
-# Digest 定时器（每 15 分钟从日记提取记忆）：
-sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-digest.timer
-
-# Archive 定时器（每天归档过期短期记忆）：
-sudo cp mem0-archive.service mem0-archive.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-archive.timer
-
-# Session snapshot 定时器（每 5 分钟捕获会话对话 — 以当前用户运行）：
+# 5. 设置自动化定时器（以当前用户运行）
 mkdir -p ~/.config/systemd/user/
-cp mem0-snapshot.service mem0-snapshot.timer ~/.config/systemd/user/
+
+# Session snapshot — 每 5 分钟捕获会话对话（跨 session 记忆桥梁）
+cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
+
+# MEMORY.md 同步 — 每天 UTC 01:00 将精选知识同步到长期记忆
+cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
+
+# 日记 digest — 每天 UTC 01:30 将昨日日记提炼为短期记忆
+cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
+
+# 归档 — 每天 UTC 02:00 对 7 天前短期记忆进行升级或删除
+cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
+
 systemctl --user daemon-reload
 systemctl --user enable --now mem0-snapshot.timer
+systemctl --user enable --now mem0-memory-sync.timer
+systemctl --user enable --now mem0-auto-digest.timer
+systemctl --user enable --now mem0-archive.timer
 ```
 
 ### 方法 3：一键 AI 部署提示词
@@ -133,49 +134,70 @@ systemctl --user enable --now mem0-snapshot.timer
 > ```bash
 > python3 patch_s3vectors_filter.py
 > ```
-> 这是修复 mem0 上游已知 bug（PR #4554 待合并）。每次 `pip upgrade mem0` 后需重新执行。
+> 这是修复 mem0 上游已知 bug（PR #4554 待合并）。每次 `pip upgrade mem0ai` 后需重新执行。
 >
 > **步骤 4：验证连通性**
 > ```bash
 > python3 test_connection.py
 > ```
 >
-> **步骤 5：设置 systemd 服务（开机自启）**
+> **步骤 5：启动记忆服务**
 > ```bash
-> sudo cp mem0-memory.service /etc/systemd/system/
+> sudo cp systemd/mem0-memory.service /etc/systemd/system/
 > sudo systemctl daemon-reload
 > sudo systemctl enable --now mem0-memory.service
 > ```
 >
-> **步骤 6：设置记忆自动化定时器**
->
-> Digest 定时器（每 15 分钟从日记提取记忆）：
-> ```bash
-> sudo cp mem0-digest.service mem0-digest.timer /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-digest.timer
-> ```
->
-> Archive 定时器（每天归档过期短期记忆）：
-> ```bash
-> sudo cp mem0-archive.service mem0-archive.timer /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-archive.timer
-> ```
->
-> Session snapshot 定时器（每 5 分钟捕获会话对话 — 以当前用户运行）：
+> **步骤 6：设置自动化定时器（以当前用户运行）**
 > ```bash
 > mkdir -p ~/.config/systemd/user/
-> cp mem0-snapshot.service mem0-snapshot.timer ~/.config/systemd/user/
+> cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
+> cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
+> cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
+> cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
 > systemctl --user daemon-reload
 > systemctl --user enable --now mem0-snapshot.timer
+> systemctl --user enable --now mem0-memory-sync.timer
+> systemctl --user enable --now mem0-auto-digest.timer
+> systemctl --user enable --now mem0-archive.timer
 > ```
 >
-> **步骤 7：测试写入和搜索**
+> **步骤 7：为 OpenClaw Agent 启用 mem0-memory Skill**
+>
+> 将 skill 复制到 OpenClaw skills 目录：
 > ```bash
-> python3 cli.py add --user me --agent dev --text "mem0 memory service deployed successfully" --metadata '{"category":"experience"}'
+> mkdir -p ~/.openclaw/skills/mem0-memory
+> cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
+> ```
+> 然后在 OpenClaw 设置 → Skills → mem0-memory 中启用。
+>
+> **步骤 8：测试写入和搜索**
+> ```bash
+> python3 cli.py add --user me --agent dev \
+>   --text "mem0 memory service deployed successfully" \
+>   --metadata '{"category":"experience"}'
 > python3 cli.py search --user me --agent dev --query "deploy"
 > ```
+
+## 为 OpenClaw Agent 启用 Skill
+
+安装完成后，在 OpenClaw 中启用 **mem0-memory** skill，所有 Agent 即可自动获得记忆能力：
+
+```bash
+# 将 skill 复制到 OpenClaw skills 目录
+mkdir -p ~/.openclaw/skills/mem0-memory
+cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
+```
+
+然后进入 **OpenClaw 设置 → Skills**，启用 `mem0-memory`。
+
+**完成。** 所有 Agent（无论新建还是已有）在下次 session 启动时，自动继承完整的记忆行为规范：
+- 回答问题前主动检索记忆
+- 对话中主动写日记
+- Heartbeat 时维护 MEMORY.md
+- 自动使用正确的 `--agent <id>` 参数，无需修改任何 AGENTS.md
+
+> 无需修改各 Agent 的 `AGENTS.md` 文件。Skill 对所有 Agent 统一生效。
 
 ### 已知问题
 
@@ -191,17 +213,17 @@ python3 patch_s3vectors_filter.py
 
 ```bash
 # 添加长期记忆
-python3 cli.py add --user me --agent dev --text "重要经验教训..."
+python3 cli.py add --user me --agent <your-agent-id> --text "重要经验教训..."
 
 # 添加短期记忆（当天日期）
-python3 cli.py add --user me --agent dev --run 2026-03-23 \
+python3 cli.py add --user me --agent <your-agent-id> --run 2026-03-27 \
   --text "今天讨论了重构方案"
 
 # 语义搜索
-python3 cli.py search --user me --agent dev --query "重构" --top-k 5
+python3 cli.py search --user me --agent <your-agent-id> --query "重构" --top-k 5
 
 # 组合搜索（长期 + 近 7 天短期）
-python3 cli.py search --user me --agent dev --query "重构" --combined
+python3 cli.py search --user me --agent <your-agent-id> --query "重构" --combined
 ```
 
 ## 记忆分层
@@ -211,7 +233,10 @@ python3 cli.py search --user me --agent dev --query "重构" --combined
 | **长期记忆** | 无 | 永久保存 | 技术决策、经验教训、用户偏好 |
 | **短期记忆** | `YYYY-MM-DD` | 7 天后归档 | 当天讨论、临时决策、任务进展 |
 
-**归档逻辑**（每天运行）：7 天后，短期记忆会与近期活动进行语义比较。活跃话题升级为长期记忆；不活跃的则删除。
+**进入长期记忆的三条路径：**
+1. `memory_sync.py` — 每天同步 `MEMORY.md`（当天生效，精选知识）
+2. `archive.py` — 7 天后对活跃短期记忆进行升级
+3. Agent 主动写入 — 随时调用 CLI，不传 `--run` 参数
 
 ## 共享知识库
 
