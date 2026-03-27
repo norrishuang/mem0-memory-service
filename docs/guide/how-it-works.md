@@ -128,6 +128,13 @@ Agents reset daily. Without snapshot, conversations would be lost between sessio
 **Secondary: Compaction Guard**
 When a session's context window grows too large, OpenClaw compresses (compacts) the history. The most recent few minutes of conversation might not survive compaction. Snapshot running every 5 minutes ensures that content is captured to disk before compaction can lose it.
 
+**Tertiary: Real-time cross-session memory sharing**
+Each agent may have multiple concurrent sessions — a direct chat session and one or more group chat sessions. Without a sharing mechanism, what an agent says in a group chat is invisible to its direct chat session (and vice versa).
+
+When snapshot detects new content, it writes directly to mem0 short-term memory (run_id=today). Any other session of the same agent can search mem0 and retrieve that content within 5 minutes — no session restart required.
+
+Session keys are tagged in metadata (`session_key`), so you can filter by source if needed.
+
 ## Two Paths for Writing Diary Files
 
 Because not all agents actively maintain diary files, there are two parallel capture paths:
@@ -140,6 +147,8 @@ Because not all agents actively maintain diary files, there are two parallel cap
 Both paths write to the same `memory/YYYY-MM-DD.md` file. Content-level deduplication ensures no entry is written twice.
 
 **The agent-driven path produces better memories.** Automation is the safety net.
+
+> **Group chat sessions are now included.** Previously, snapshot only captured the `main` (direct chat) session. Now all sessions matching `agent:{id}:*` are processed — group chat conversations are written to the same diary file and mem0, enabling cross-context memory sharing within the same agent.
 
 ## Three Paths to Long-Term Memory
 

@@ -35,10 +35,11 @@ flowchart TD
     SKILL["SKILL.md"]
     Retrieve(["mem0 Retrieval"])
 
-    Agents -- "every 5 min\n(compaction guard +\ncross-session bridge)" --> Snap
+    Agents -- "every 5 min\n(all sessions: main + group chats)" --> Snap
     Agents -- "active write\n(no run_id)" --> LTM
     Agents -- "actively maintain" --> MemoryMD
     Snap --> Diary
+    Snap -- "direct write\n(new content only)" --> STM
     Diary -- "daily UTC 01:30\n(yesterday full diary)" --> Digest
     MemoryMD -- "daily UTC 01:00\n(hash dedup)" --> Sync
     Digest --> STM
@@ -63,7 +64,7 @@ flowchart TD
 
 | Component | Role |
 |---|---|
-| **session_snapshot.py** | Runs every 5 minutes. Primary role: **cross-session memory bridge** — captures session conversations into daily diary files so context survives session resets. Secondary role: compaction guard against context compression. |
+| **session_snapshot.py** | Runs every 5 minutes. Captures **all** agent sessions (direct chat + group chats) into daily diary files. Also writes new messages directly to mem0 short-term memory (run_id=date) for real-time cross-session sharing — skipped if no new content in the last 5 minutes. |
 | **auto_digest.py** | Runs daily at UTC 01:30. Processes **yesterday's complete diary** in one pass — higher quality than incremental processing. Extracts key events using LLM and writes to mem0 as short-term memories (`run_id=date`). |
 | **memory_sync.py** | Runs daily at UTC 01:00. Syncs each agent's `MEMORY.md` (curated knowledge) directly to mem0 long-term memory. Hash-based dedup skips unchanged files — zero LLM cost if nothing changed. |
 | **archive.py** | Runs daily at UTC 02:00. Promotes active short-term memories to long-term (removes `run_id`); deletes inactive ones. |

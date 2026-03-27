@@ -126,6 +126,13 @@ Agent 每天重置。没有 snapshot，session 之间的对话就会丢失。Sna
 **辅助角色：Compaction 保底**
 当 session 上下文窗口增长过大时，OpenClaw 会压缩（compact）历史记录。最近几分钟的对话可能在 compaction 中丢失。Snapshot 每 5 分钟运行一次，确保内容在被 compaction 丢失之前已写入磁盘。
 
+**第三个角色：跨 session 实时记忆共享**
+同一个 agent 可能有多个并发 session——一个单聊 session 和一个或多个群聊 session。没有共享机制的话，agent 在群聊里说的内容，单聊 session 完全看不到（反之亦然）。
+
+snapshot 检测到新内容时，直接写入 mem0 短期记忆（run_id=今天）。同一 agent 的其他 session 搜索 mem0 即可在 5 分钟内获取到这些内容——无需重启 session。
+
+session 来源记录在 metadata 的 `session_key` 字段中，需要时可按来源过滤。
+
 ## 日记文件的两条写入路径
 
 由于并非所有 agent 都会主动维护日记，存在两条并行的捕获路径：
