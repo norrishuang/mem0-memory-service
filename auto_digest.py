@@ -20,25 +20,61 @@ import requests
 
 # 优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
 WORKSPACE_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
+OPENCLAW_CONFIG = WORKSPACE_BASE / "openclaw.json"
+
+
+def load_agent_workspaces() -> dict:
+    """从 openclaw.json 读取每个 agent 的真实 workspace 路径。
+
+    优先级：
+    1. openclaw.json 中明确配置的 workspace（最权威）
+    2. 回退：扫描 workspace-* 目录（兼容旧部署）
+    """
+    mapping = {}
+
+    if OPENCLAW_CONFIG.exists():
+        try:
+            with open(OPENCLAW_CONFIG) as f:
+                config = json.load(f)
+
+            def _extract(obj):
+                if isinstance(obj, dict):
+                    if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
+                        mapping[obj['id']] = Path(obj['workspace'])
+                    for v in obj.values():
+                        _extract(v)
+                elif isinstance(obj, list):
+                    for v in obj:
+                        _extract(v)
+
+            _extract(config)
+            logger.debug(f"Loaded {len(mapping)} agent workspaces from openclaw.json")
+        except Exception as e:
+            logger.warning(f"Failed to parse openclaw.json: {e}, falling back to directory scan")
+
+    # 兜底：扫描 workspace-* 目录
+    if not mapping:
+        for ws_dir in sorted(WORKSPACE_BASE.glob("workspace-*")):
+            agent_id = ws_dir.name.replace("workspace-", "")
+            mapping[agent_id] = ws_dir
+        logger.debug(f"Fallback scan found {len(mapping)} agents")
+
+    return mapping
+
 
 def discover_agents() -> List[tuple]:
-    """动态发现所有 agent workspace，自动找出有 memory 目录的 agent"""
+    """动态发现所有 agent workspace，返回有 memory 目录的 (memory_dir, agent_id) 列表"""
     dirs = []
-    if not WORKSPACE_BASE.exists():
-        logger.warning(f"Workspace base does not exist: {WORKSPACE_BASE}")
-        return dirs
-    
-    for workspace_dir in WORKSPACE_BASE.glob("workspace-*"):
-        # workspace-{agent_name} -> agent_name
-        agent_id = workspace_dir.name.replace("workspace-", "")
+    workspaces = load_agent_workspaces()
+
+    for agent_id, workspace_dir in workspaces.items():
         memory_dir = workspace_dir / "memory"
-        
         if memory_dir.exists() and memory_dir.is_dir():
             dirs.append((memory_dir, agent_id))
             logger.info(f"Discovered agent: {agent_id} (memory: {memory_dir})")
         else:
-            logger.debug(f"Skipping {workspace_dir.name}: no memory directory")
-    
+            logger.debug(f"Skipping {agent_id}: no memory directory at {memory_dir}")
+
     return dirs
 
 # DIARY_DIRS 延迟初始化（在 main 中调用）
