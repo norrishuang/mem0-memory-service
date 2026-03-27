@@ -1,0 +1,14 @@
+[Unit]
+Description=Mem0 auto digest - extract short-term memories from diary
+After=network.target mem0-memory.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/auto_digest.py
+StandardOutput=append:/home/ec2-user/workspace/mem0-memory-service/auto_digest.log
+StandardError=append:/home/ec2-user/workspace/mem0-memory-service/auto_digest.log
+
+[Install]
+WantedBy=multi-user.target
