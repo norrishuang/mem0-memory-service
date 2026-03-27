@@ -126,6 +126,13 @@ Agent 每天重置。没有 snapshot，session 之间的对话就会丢失。Sna
 **辅助角色：Compaction 保底**
 当 session 上下文窗口增长过大时，OpenClaw 会压缩（compact）历史记录。最近几分钟的对话可能在 compaction 中丢失。Snapshot 每 5 分钟运行一次，确保内容在被 compaction 丢失之前已写入磁盘。
 
+**第三个角色：跨 session 实时记忆共享**
+同一个 agent 可能有多个并发 session——一个单聊 session 和一个或多个群聊 session。没有共享机制的话，agent 在群聊里说的内容，单聊 session 完全看不到（反之亦然）。
+
+snapshot 检测到新内容时，直接写入 mem0 短期记忆（run_id=今天）。同一 agent 的其他 session 搜索 mem0 即可在 5 分钟内获取到这些内容——无需重启 session。
+
+session 来源记录在 metadata 的 `session_key` 字段中，需要时可按来源过滤。
+
 ## 日记文件的两条写入路径
 
 由于并非所有 agent 都会主动维护日记，存在两条并行的捕获路径：
@@ -138,6 +145,8 @@ Agent 每天重置。没有 snapshot，session 之间的对话就会丢失。Sna
 两条路径都写入同一个 `memory/YYYY-MM-DD.md` 文件。内容级去重确保每条消息不重复写入。
 
 **Agent 主动写的质量更高。** 自动化是安全网。
+
+> **群聊 session 现已纳入捕获范围。** 之前 snapshot 只捕获 `main`（单聊）session。现在处理所有匹配 `agent:{id}:*` 的 session——群聊对话同样写入日记文件和 mem0，实现同一 agent 跨上下文的记忆共享。
 
 ## 进入长期记忆的三条路径
 
@@ -157,7 +166,44 @@ python3 cli.py add \
 
 ## Session 启动：恢复上下文
 
-新 session 启动时，skill 指导 agent 从 mem0 检索相关上下文：
+### 为什么今天和昨天的日记文件都要读
+
+新 session 启动时，skill 指导 agent 先读**两个日记文件**，再查 mem0：
+
+```
+Session 启动
+  ├── 读 memory/今天.md      ← 今天的原始日记（实时，尚未进 mem0）
+  ├── 读 memory/昨天.md      ← 昨天的原始日记（覆盖时间窗口盲区）
+  └── search mem0 --combined ← 提炼后的记忆（T+1，01:30 之后）
+```
+
+**为什么要读今天的日记？**
+`auto_digest.py` 在 UTC 01:30 运行，处理的是*昨天*的完整日记。今天发生的所有事情还没有被提炼——只存在于 `memory/今天.md` 里。Session 重置后，读这个文件是恢复当天上下文的唯一途径。
+
+**为什么要读昨天的日记？**
+存在一个覆盖盲区：昨天深夜的对话，到 `auto_digest` 完成运行（UTC 01:30）之间的时间窗口。例如：
+
+```
+昨天 23:50  发生了重要讨论 → 写入 memory/昨天.md
+今天 00:10  Session 重置，新 session 启动
+今天 01:30  auto_digest 运行 → 昨天日记进入 mem0
+```
+
+如果新 session 在 01:30 之前启动，mem0 里还没有昨晚的内容。直接读 `memory/昨天.md` 可以覆盖这个盲区。
+
+**完整的时间覆盖地图：**
+
+| 时间窗口 | 覆盖手段 |
+|---------|---------|
+| 今天（T+0） | `memory/今天.md`（实时） |
+| 昨天深夜到今天 01:30 | `memory/昨天.md`（盲区缓冲） |
+| 昨天 01:30 之后 | mem0 短期记忆（已提炼） |
+| 最近 7 天 | mem0 短期记忆（`--combined`） |
+| 7 天以上 | mem0 长期记忆（archive 升级后） |
+
+三个来源组合——今天日记 + 昨天日记 + mem0——在所有 session 重置场景下实现**零盲区**覆盖。
+
+### mem0 检索
 
 ```bash
 # 组合搜索：长期记忆 + 最近 7 天短期记忆

@@ -35,10 +35,11 @@ flowchart TD
     SKILL["SKILL.md"]
     Retrieve(["mem0 检索"])
 
-    Agents -- "每 5 分钟\n（跨 session 记忆桥梁\n+ compaction 保底）" --> Snap
+    Agents -- "每 5 分钟\n（所有 session：单聊 + 群聊）" --> Snap
     Agents -- "主动写入\n（无 run_id）" --> LTM
     Agents -- "主动维护" --> MemoryMD
     Snap --> Diary
+    Snap -- "直接写入\n（仅新内容）" --> STM
     Diary -- "每天 UTC 01:30\n（处理完整昨日日记）" --> Digest
     MemoryMD -- "每天 UTC 01:00\n（hash 去重）" --> Sync
     Digest --> STM
@@ -63,7 +64,7 @@ flowchart TD
 
 | 组件 | 职责 |
 |---|---|
-| **session_snapshot.py** | 每 5 分钟运行一次。核心定位：**跨 session 记忆桥梁**——将会话对话捕获到日记文件，确保上下文在 session 重置后不丢失。同时兼具 compaction 保底功能。 |
+| **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。同时将新消息直接写入 mem0 短期记忆（run_id=日期），实现跨 session 实时共享——5 分钟内无新内容则跳过。 |
 | **auto_digest.py** | 每天 UTC 01:30 运行。一次性处理**昨天的完整日记**——比增量处理质量更高。使用 LLM 提炼关键事件，写入 mem0 短期记忆（`run_id=日期`）。 |
 | **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于内容 hash 去重，文件未变化时零 LLM 调用。 |
 | **archive.py** | 每天 UTC 02:00 运行，将活跃的短期记忆升级为长期记忆（移除 `run_id`），删除不活跃的记忆。 |
