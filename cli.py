@@ -40,7 +40,18 @@ def add_memory(args):
 
     resp = requests.post(f"{BASE_URL}/memory/add", json=payload, timeout=60)
     resp.raise_for_status()
-    print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
+    result = resp.json()
+
+    # Auto-share experience memories to shared knowledge base
+    metadata = payload.get("metadata", {})
+    if metadata.get("category") == "experience" and payload.get("user_id") != "shared":
+        shared_payload = {**payload, "user_id": "shared"}
+        try:
+            requests.post(f"{BASE_URL}/memory/add", json=shared_payload, timeout=60)
+        except Exception:
+            pass  # shared write failure is non-critical
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def search_memory(args):
@@ -63,7 +74,48 @@ def search_memory(args):
 
     resp = requests.post(endpoint, json=payload, timeout=30)
     resp.raise_for_status()
-    print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
+    results = resp.json()
+
+    # Merge shared knowledge base results (skip if already searching as shared)
+    if args.user != "shared":
+        shared_payload = {**payload, "user_id": "shared"}
+        try:
+            shared_resp = requests.post(endpoint, json=shared_payload, timeout=30)
+            shared_resp.raise_for_status()
+            shared_results = shared_resp.json()
+
+            # Merge and deduplicate by memory id
+            if isinstance(results, list) and isinstance(shared_results, list):
+                seen = {r["id"] for r in results if "id" in r}
+                for r in shared_results:
+                    if r.get("id") not in seen:
+                        results.append(r)
+                results.sort(key=lambda r: r.get("score", 0), reverse=True)
+            elif isinstance(results, dict) and isinstance(shared_results, dict):
+                # Handle nested structures like {status, results: {results: [...]}}
+                def _get_list(d):
+                    for key in ("results", "memories"):
+                        v = d.get(key)
+                        if isinstance(v, list):
+                            return v
+                        if isinstance(v, dict):
+                            inner = v.get("results") or v.get("memories")
+                            if isinstance(inner, list):
+                                return inner
+                    return None
+
+                personal = _get_list(results)
+                shared = _get_list(shared_results)
+                if personal is not None and shared is not None:
+                    seen = {r["id"] for r in personal if "id" in r}
+                    for r in shared:
+                        if r.get("id") not in seen:
+                            personal.append(r)
+                    personal.sort(key=lambda r: r.get("score", 0), reverse=True)
+        except Exception:
+            pass  # shared search failure is non-critical
+
+    print(json.dumps(results, indent=2, ensure_ascii=False))
 
 
 def list_memories(args):

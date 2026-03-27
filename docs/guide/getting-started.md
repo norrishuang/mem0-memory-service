@@ -214,3 +214,9 @@ python3 cli.py search --user me --agent dev --query "refactoring" --combined
 | **Short-term** | `YYYY-MM-DD` | 7 days → archive | Daily discussions, temp decisions, task progress |
 
 **Archival logic** (runs daily): after 7 days, short-term memories are semantically compared against recent activity. Active topics are upgraded to long-term; inactive ones are deleted.
+
+## Shared Knowledge Base
+
+Memories with `category=experience` are automatically shared across all agents and users. When any agent adds a memory tagged as `experience`, it is written to both the personal memory space and a global `shared` pool.
+
+During retrieval, every search automatically includes results from the shared pool — so all agents benefit from the team's collective experience without any extra configuration.

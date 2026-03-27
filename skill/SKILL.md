@@ -1,226 +1,230 @@
 ---
 name: mem0-memory
 description: |
-  mem0 向量记忆系统。通过 CLI 访问本地 mem0 Memory Service，实现语义记忆的存储、检索和管理。
+  mem0 vector memory system. Access the local mem0 Memory Service via CLI for semantic memory storage, retrieval, and management.
 
-  **当以下情况时使用此 Skill**：
-  (1) 每次回答用户问题前，先 search 检索相关记忆
-  (2) 每次完成一个任务或一轮有实质内容的对话后（自动沉淀）
-  (3) 用户提到"记住"、"记一下"、"remember"、"recall"
-  (4) 需要回忆/检索之前的信息
-  (5) 需要列出、更新或删除已有记忆
-  (6) Heartbeat 时自动沉淀
+  **Use this Skill when**:
+  (1) Before answering any user question, search to retrieve relevant memories first
+  (2) After completing a task or a substantive conversation round (automatic distillation)
+  (3) User mentions "记住", "记一下", "remember", "recall"
+  (4) Need to recall/retrieve previous information
+  (5) Need to list, update, or delete existing memories
+  (6) Automatic distillation during heartbeats
 ---
 
 # mem0 Memory Skill
 
-为 OpenClaw Agent 提供持久化语义记忆。mem0 自动做记忆提取和去重，放心多写。
+Provides persistent semantic memory for OpenClaw Agent. mem0 automatically extracts and deduplicates memories — feel free to write generously.
 
-## CLI 路径
+## CLI Path
 
 ```
 /home/ec2-user/workspace/mem0-memory-service/cli.py
 ```
 
-## 🔴 与 MEMORY.md 的分工
+## 🔴 Division of Responsibilities with MEMORY.md
 
-mem0 和 workspace 文件系统记忆（MEMORY.md + memory/*.md）各有优势，**不互相替代**：
+mem0 and workspace filesystem memory (MEMORY.md + memory/*.md) each have their strengths — **they don't replace each other**:
 
 | | MEMORY.md + memory/*.md | mem0 |
 |---|---|---|
-| **存什么** | 结构化项目卡片（名称+URL+状态+路径） | 经验教训、技术细节、决策原因、用户偏好 |
-| **检索方式** | memory_search 系统自动触发 | 需主动调用 CLI search |
-| **优势** | 保留结构和上下文，不会丢信息 | 语义检索，按需获取，不消耗加载 token |
-| **劣势** | 文件越大 token 成本越高 | 自动去重可能拆碎结构化信息 |
+| **What to store** | Structured project cards (name+URL+status+path) | Lessons learned, technical details, decision rationale, user preferences |
+| **Retrieval method** | memory_search triggered automatically by the system | Requires actively calling CLI search |
+| **Strengths** | Preserves structure and context, no information loss | Semantic retrieval, on-demand fetching, no loading token cost |
+| **Weaknesses** | Larger files mean higher token costs | Auto-dedup may fragment structured information |
 
-**原则：**
-- **项目卡片**（GitHub URL、架构概览、服务端口、关键路径）→ 写 MEMORY.md
-- **经验教训、踩坑记录、技术细节、偏好、决策**→ 写 mem0
-- **每日流水账**→ memory/YYYY-MM-DD.md
+**Principles:**
+- **Project cards** (GitHub URL, architecture overview, service ports, key paths) → Write to MEMORY.md
+- **Lessons learned, pitfall records, technical details, preferences, decisions** → Write to mem0
+- **Daily logs** → memory/YYYY-MM-DD.md
 
-## 🔴 核心规则：主动检索 + 主动写入
+## 🔴 Core Rules: Proactive Retrieval + Proactive Writing
 
-### 检索（每次回答前）
+### Retrieval (Before Every Response)
 
-**不要等用户说"你还记得吗"才查。每次回答用户问题前，主动 search：**
+**Don't wait for the user to ask "do you remember?" — proactively search before answering every question:**
 
-**优先使用组合搜索（长期 + 近7天短期）：**
+**Prefer combined search (long-term + recent 7-day short-term):**
 
 ```bash
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py search \
   --user boss --agent main \
-  --query "<从用户问题提取的关键词>" \
+  --query "<keywords extracted from user question>" \
   --combined --recent-days 7
 ```
 
-**或单独搜索长期记忆：**
+**Or search long-term memory only:**
 
 ```bash
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py search \
   --user boss --agent main \
-  --query "<从用户问题提取的关键词>"
+  --query "<keywords extracted from user question>"
 ```
 
-### 写入（每次任务完成后）
+### Writing (After Every Task Completion)
 
-**不要等用户说"记住"才写。每次对话有以下内容时，主动调用 add 沉淀：**
+**Don't wait for the user to say "remember this." Proactively call add to distill whenever a conversation contains the following:**
 
-1. **完成了一个任务**（部署、修 bug、提 PR、写代码等）→ 记录做了什么、结果、关键决策
-2. **发现了经验教训**（踩坑、workaround、兼容性问题）→ 记录问题和解决方案
-3. **项目状态变更**（PR 合并/拒绝、版本发布、环境变更）→ 记录新状态
-4. **用户偏好或习惯**（沟通方式、技术偏好、工作流程）→ 记录偏好
-5. **新的配置/环境信息**（服务地址、密码、路径变更）→ 记录信息
-6. **重要决策和原因**（为什么选 A 不选 B）→ 记录决策上下文
+1. **Completed a task** (deployment, bug fix, PR submission, coding, etc.) → Record what was done, the result, and key decisions
+2. **Discovered a lesson learned** (pitfall, workaround, compatibility issue) → Record the problem and solution
+3. **Project status change** (PR merged/rejected, version release, environment change) → Record the new status
+4. **User preferences or habits** (communication style, tech preferences, workflow) → Record preferences
+5. **New configuration/environment info** (service addresses, passwords, path changes) → Record the information
+6. **Important decisions and rationale** (why choose A over B) → Record the decision context
 
-**写入时机：任务完成后、回复用户前。不需要额外确认。**
+**Timing: After task completion, before replying to the user. No additional confirmation needed.**
 
-### ⚠️ 写入注意：避免信息被拆碎
+### ⚠️ Writing Caution: Avoid Information Fragmentation
 
-mem0 的自动去重会将一条记忆拆分成多个零散事实。对于**结构化项目信息**（包含多个关键字段的），
-应该合成一条完整记忆写入，而不是拆成多条：
+mem0's auto-dedup may split a single memory into multiple scattered facts. For **structured project information** (containing multiple key fields),
+compose a single complete memory entry instead of splitting into multiple entries:
 
 ```bash
-# ❌ 不好：拆开写，去重后搜索时难以还原全貌
-python3 cli.py add --text "mem0-memory-service 用 FastAPI"
-python3 cli.py add --text "mem0-memory-service 端口 8230"
-python3 cli.py add --text "mem0-memory-service 的 GitHub 地址是 ..."
+# ❌ Bad: Split entries — hard to reconstruct the full picture after dedup
+python3 cli.py add --text "mem0-memory-service uses FastAPI"
+python3 cli.py add --text "mem0-memory-service port 8230"
+python3 cli.py add --text "mem0-memory-service GitHub URL is ..."
 
-# ✅ 好：合成一条完整记忆
-python3 cli.py add --text "mem0-memory-service: GitHub https://github.com/norrishuang/mem0-memory-service, 架构 FastAPI+mem0→OpenSearch+Bedrock, 端口 8230, systemd mem0-memory.service"
+# ✅ Good: Compose a single complete memory
+python3 cli.py add --text "mem0-memory-service: GitHub https://github.com/norrishuang/mem0-memory-service, architecture FastAPI+mem0→OpenSearch+Bedrock, port 8230, systemd mem0-memory.service"
 ```
 
-**但经验教训和偏好可以分开写**（它们本身就是独立的事实片段）。
+**However, lessons learned and preferences can be written separately** (they are inherently independent fact fragments).
 
-## 写入
+## Writing
+
+When adding memory with `category=experience`, it is automatically shared to the global shared knowledge base (accessible by all agents and users).
 
 ```bash
-# 长期记忆（经验教训、技术决策、用户偏好等）
+# Long-term memory (lessons learned, technical decisions, user preferences, etc.)
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
   --user boss --agent main \
-  --text "具体的关键信息" \
+  --text "specific key information" \
   --metadata '{"category":"experience","project":"xxx"}'
 
-# 短期记忆（当天讨论、临时决策、任务进展）
+# Short-term memory (today's discussions, temporary decisions, task progress)
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
   --user boss --agent main \
   --run 2026-03-23 \
-  --text "今天讨论的临时内容..." \
+  --text "temporary content discussed today..." \
   --metadata '{"category":"short_term","project":"xxx"}'
 
-# 对话消息（mem0 自动提取关键事实，适合沉淀整段对话）
+# Conversation messages (mem0 auto-extracts key facts, suitable for distilling entire conversations)
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
   --user boss --agent main \
   --messages '[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]'
 ```
 
-**长短期记忆选择：**
-- **长期记忆**（不传 `--run`）：技术决策、经验教训、项目状态、用户偏好
-- **短期记忆**（传 `--run YYYY-MM-DD`）：当天讨论、临时决策、任务进展
-- 7天后，短期记忆自动归档：活跃话题升级为长期，不活跃的删除
+**Long-term vs Short-term Memory:**
+- **Long-term memory** (without `--run`): Technical decisions, lessons learned, project status, user preferences
+- **Short-term memory** (with `--run YYYY-MM-DD`): Today's discussions, temporary decisions, task progress
+- After 7 days, short-term memories are auto-archived: active topics are promoted to long-term, inactive ones are deleted
 
-### metadata category 参考
+### metadata category Reference
 
-| category | 用途 | 示例 |
-|----------|------|------|
-| `experience` | 经验教训、踩坑记录 | "较新特性先查官方文档，不要凭经验推断" |
-| `project` | 项目状态、进展 | "opensearch-vector-search v1.3.0 已发布" |
-| `decision` | 重要决策及原因 | "选择 cron 定时沉淀而非纯 heartbeat" |
-| `environment` | 环境配置、服务信息 | "EC2 us-east-1, Bedrock 模型配置" |
-| `preference` | 用户偏好、习惯 | "中文交流、简洁直接" |
-| `short_term` | 短期记忆，用 run_id 隔离，7天后活跃度判断归档 | "今天 Luke 和 Zoe 讨论了 X 问题" |
+| category | Purpose | Example |
+|----------|---------|---------|
+| `experience` | Lessons learned, pitfall records | "Check official docs first for newer features, don't rely on assumptions" |
+| `project` | Project status, progress | "opensearch-vector-search v1.3.0 has been released" |
+| `decision` | Important decisions and rationale | "Chose cron-based scheduled distillation over pure heartbeat" |
+| `environment` | Environment config, service info | "EC2 us-east-1, Bedrock model configuration" |
+| `preference` | User preferences, habits | "Communicate in Chinese, concise and direct" |
+| `short_term` | Short-term memory, isolated by run_id, archived after 7 days based on activity | "Today Luke and Zoe discussed issue X" |
 
-### 短期记忆（基于 run_id + 自动归档）
+### Short-term Memory (Based on run_id + Auto-archiving)
 
-短期记忆使用 `run_id=YYYY-MM-DD`（北京时间日期）标识，7天后自动归档：
+Short-term memories use `run_id=YYYY-MM-DD` (Beijing time date) as identifier, auto-archived after 7 days:
 
 ```bash
-# 添加短期记忆（用当天日期作为 run_id）
+# Add short-term memory (use today's date as run_id)
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
   --user boss --agent main \
   --run 2026-03-23 \
-  --text "今天 Luke 和 Zoe 讨论了记忆系统重构方案" \
+  --text "Today Luke and Zoe discussed the memory system refactoring plan" \
   --metadata '{"category":"short_term","project":"mem0"}'
 
-# 带 metadata 分类
+# With metadata category
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py add \
   --user boss --agent main \
   --run 2026-03-23 \
-  --text "临时讨论：考虑将 Y 功能推迟到下个 sprint" \
+  --text "Temporary discussion: considering postponing feature Y to next sprint" \
   --metadata '{"category":"short_term","project":"xxx"}'
 ```
 
-**自动归档机制**（每天运行）：
-- 7天前的短期记忆自动处理
-- 活跃话题（近期有相关讨论）→ 升级为长期记忆
-- 不活跃话题 → 删除
+**Auto-archiving mechanism** (runs daily):
+- Short-term memories older than 7 days are automatically processed
+- Active topics (recent related discussions) → Promoted to long-term memory
+- Inactive topics → Deleted
 
-**使用场景：**
-- 当天讨论记录
-- 会议纪要
-- 临时决策或假设
-- 任务进展
+**Use cases:**
+- Same-day discussion records
+- Meeting notes
+- Temporary decisions or assumptions
+- Task progress
 
-**注意：**
-- 不确定是否永久的，优先用短期记忆
-- 系统会自动判断是否值得保留
+**Notes:**
+- When unsure if something is permanent, prefer short-term memory
+- The system will automatically determine if it's worth keeping
 
-## 检索
+## Retrieval
+
+Shared knowledge (category=experience from all agents/users) is automatically included in every search result.
 
 ```bash
-# 组合搜索（长期 + 近7天短期，推荐）
+# Combined search (long-term + recent 7-day short-term, recommended)
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py search \
   --user boss --agent main \
-  --query "自然语言查询" --combined --recent-days 7
+  --query "natural language query" --combined --recent-days 7
 
-# 单独搜索长期记忆
+# Search long-term memory only
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py search \
   --user boss --agent main \
-  --query "自然语言查询" --top-k 5
+  --query "natural language query" --top-k 5
 
-# 搜索特定日期的短期记忆
+# Search short-term memory for a specific date
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py search \
   --user boss --agent main \
-  --run 2026-03-23 --query "关键词"
+  --run 2026-03-23 --query "keywords"
 
-# 跨 agent 搜索（不传 --agent）
+# Cross-agent search (omit --agent)
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py search \
-  --user boss --query "关键词" --combined --recent-days 7
+  --user boss --query "keywords" --combined --recent-days 7
 ```
 
-## 定时沉淀
+## Scheduled Distillation
 
-已配置 cron job（每 4 小时），自动从最近对话中提取有价值信息写入 mem0。
-静默模式运行，不打扰用户。
+A cron job is configured (every 4 hours) to automatically extract valuable information from recent conversations and write to mem0.
+Runs in silent mode without disturbing the user.
 
-## 其他操作
+## Other Operations
 
 ```bash
-# 列出所有长期记忆
+# List all long-term memories
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py list --user boss --agent main
 
-# 列出特定日期的短期记忆
+# List short-term memories for a specific date
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py list --user boss --agent main --run 2026-03-23
 
-# 获取单条
+# Get a single memory
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py get --id <memory_id>
 
-# 删除
+# Delete
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py delete --id <memory_id>
 
-# 变更历史
+# Change history
 python3 /home/ec2-user/workspace/mem0-memory-service/cli.py history --id <memory_id>
 ```
 
-## 数据隔离
+## Data Isolation
 
-- `--user boss` — 固定用 boss
-- `--agent main` / `--agent dev` — 按 agent 隔离
-- 不传 `--agent` 可跨 agent 检索
+- `--user boss` — Always use boss
+- `--agent main` / `--agent dev` — Isolated by agent
+- Omit `--agent` for cross-agent retrieval
 
-## 注意
+## Notes
 
-- mem0 自动去重，语义相似的内容不会重复存储，所以**宁可多写不要少写**
-- 但结构化项目信息要**合成一条**写入，避免被拆碎（见上方注意事项）
-- 搜索是语义级别的，不需要精确匹配
-- 写入失败不影响主流程，静默跳过即可
-- 服务管理：`sudo systemctl status/restart mem0-memory`
+- mem0 auto-deduplicates — semantically similar content won't be stored twice, so **write more rather than less**
+- But structured project information should be **composed into a single entry** to avoid fragmentation (see caution above)
+- Search is semantic-level, no exact matching required
+- Write failures don't affect the main flow — silently skip
+- Service management: `sudo systemctl status/restart mem0-memory`
