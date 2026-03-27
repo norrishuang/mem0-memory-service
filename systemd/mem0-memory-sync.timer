@@ -1,0 +1,10 @@
+[Unit]
+Description=Run mem0 MEMORY.md sync daily at UTC 01:00
+Requires=mem0-memory-sync.service
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

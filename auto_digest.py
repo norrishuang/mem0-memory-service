@@ -1,91 +1,30 @@
 #!/usr/bin/env python3
 """
-auto_digest.py - 自动从日记文件提取短期记忆
+auto_digest.py - 自动从昨天的日记文件提取短期记忆
 
-每小时由 cron 调用，读取今天的日记文件，提取过去1小时内新增的内容，
-用 LLM 抽取关键短期事件，写入 mem0（带 run_id=YYYY-MM-DD）。
+每天 UTC 01:30 运行，读取北京时间昨天的完整日记文件，
+用 LLM 提炼关键短期事件，写入 mem0（run_id=昨天日期）。
 """
-import os
-import sys
 import json
 import logging
+import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List, Dict
 
 import boto3
 import requests
 
 # ─── Configuration ───
 
-# 优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
 WORKSPACE_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
 OPENCLAW_CONFIG = WORKSPACE_BASE / "openclaw.json"
 
-
-def load_agent_workspaces() -> dict:
-    """从 openclaw.json 读取每个 agent 的真实 workspace 路径。
-
-    优先级：
-    1. openclaw.json 中明确配置的 workspace（最权威）
-    2. 回退：扫描 workspace-* 目录（兼容旧部署）
-    """
-    mapping = {}
-
-    if OPENCLAW_CONFIG.exists():
-        try:
-            with open(OPENCLAW_CONFIG) as f:
-                config = json.load(f)
-
-            def _extract(obj):
-                if isinstance(obj, dict):
-                    if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
-                        mapping[obj['id']] = Path(obj['workspace'])
-                    for v in obj.values():
-                        _extract(v)
-                elif isinstance(obj, list):
-                    for v in obj:
-                        _extract(v)
-
-            _extract(config)
-            logger.debug(f"Loaded {len(mapping)} agent workspaces from openclaw.json")
-        except Exception as e:
-            logger.warning(f"Failed to parse openclaw.json: {e}, falling back to directory scan")
-
-    # 兜底：扫描 workspace-* 目录
-    if not mapping:
-        for ws_dir in sorted(WORKSPACE_BASE.glob("workspace-*")):
-            agent_id = ws_dir.name.replace("workspace-", "")
-            mapping[agent_id] = ws_dir
-        logger.debug(f"Fallback scan found {len(mapping)} agents")
-
-    return mapping
-
-
-def discover_agents() -> List[tuple]:
-    """动态发现所有 agent workspace，返回有 memory 目录的 (memory_dir, agent_id) 列表"""
-    dirs = []
-    workspaces = load_agent_workspaces()
-
-    for agent_id, workspace_dir in workspaces.items():
-        memory_dir = workspace_dir / "memory"
-        if memory_dir.exists() and memory_dir.is_dir():
-            dirs.append((memory_dir, agent_id))
-            logger.info(f"Discovered agent: {agent_id} (memory: {memory_dir})")
-        else:
-            logger.debug(f"Skipping {agent_id}: no memory directory at {memory_dir}")
-
-    return dirs
-
-# DIARY_DIRS 延迟初始化（在 main 中调用）
-# STATE_FILE = Path(__file__).parent / ".digest_state.json"
 LOG_FILE = Path(__file__).parent / "auto_digest.log"
-STATE_FILE = Path(__file__).parent / ".digest_state.json"  # 移到这里，在 logger 之后
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 AWS_REGION = "us-east-1"
 
-# LLM prompt for extracting short-term events
 EXTRACT_PROMPT = """你是一个记忆提取助手。以下是一段工作日记内容，请从中提取今天发生的关键短期事件。
 
 要提取的内容：
@@ -120,200 +59,137 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ─── Core Functions ───
+# ─── Agent Discovery ───
 
-def get_beijing_date() -> str:
-    """Get current date in Beijing timezone (UTC+8)."""
+def load_agent_workspaces() -> dict:
+    """从 openclaw.json 读取每个 agent 的 workspace 路径，兜底扫描目录"""
+    mapping = {}
+
+    if OPENCLAW_CONFIG.exists():
+        try:
+            with open(OPENCLAW_CONFIG) as f:
+                config = json.load(f)
+
+            def _extract(obj):
+                if isinstance(obj, dict):
+                    if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
+                        mapping[obj['id']] = Path(obj['workspace'])
+                    for v in obj.values():
+                        _extract(v)
+                elif isinstance(obj, list):
+                    for v in obj:
+                        _extract(v)
+
+            _extract(config)
+            logger.debug(f"Loaded {len(mapping)} agent workspaces from openclaw.json")
+        except Exception as e:
+            logger.warning(f"Failed to parse openclaw.json: {e}, falling back to directory scan")
+
+    if not mapping:
+        for ws_dir in sorted(WORKSPACE_BASE.glob("workspace-*")):
+            agent_id = ws_dir.name.replace("workspace-", "")
+            mapping[agent_id] = ws_dir
+
+    return mapping
+
+
+def get_beijing_yesterday() -> str:
+    """获取北京时间昨天的日期字符串"""
     utc_now = datetime.utcnow()
     beijing_now = utc_now + timedelta(hours=8)
-    return beijing_now.strftime("%Y-%m-%d")
+    yesterday = beijing_now - timedelta(days=1)
+    return yesterday.strftime("%Y-%m-%d")
 
 
-def load_state() -> Dict[str, int]:
-    """Load processing state from file."""
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to load state file: {e}. Starting fresh.")
-    return {}
+# ─── Core Functions ───
 
-
-def save_state(state: Dict[str, int]):
-    """Save processing state to file."""
+def call_llm_extract(content: str) -> list[str] | None:
+    """调用 Bedrock LLM 提取短期事件"""
     try:
-        with open(STATE_FILE, 'w') as f:
-            json.dump(state, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save state: {e}")
-
-
-def read_new_content(file_path: Path, last_offset: int) -> Optional[str]:
-    """Read new content from diary file starting from last_offset."""
-    if not file_path.exists():
-        logger.info(f"Diary file does not exist: {file_path}")
-        return None
-
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            f.seek(last_offset)
-            new_content = f.read()
-            current_offset = f.tell()
-
-        if current_offset == last_offset:
-            logger.info(f"No new content in {file_path.name}")
-            return None
-
-        logger.info(f"Read {len(new_content)} bytes of new content from {file_path.name} (offset {last_offset} -> {current_offset})")
-        return new_content
-    except Exception as e:
-        logger.error(f"Error reading file {file_path}: {e}")
-        return None
-
-
-def call_llm_extract(content: str) -> Optional[List[str]]:
-    """Call AWS Bedrock LLM to extract short-term events."""
-    try:
-        bedrock = boto3.client(
-            service_name='bedrock-runtime',
-            region_name=AWS_REGION
-        )
-
-        prompt = EXTRACT_PROMPT.format(content=content)
-
-        request_body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 2000,
-            "temperature": 0.3,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }
-
+        bedrock = boto3.client(service_name='bedrock-runtime', region_name=AWS_REGION)
         response = bedrock.invoke_model(
             modelId=BEDROCK_MODEL_ID,
-            body=json.dumps(request_body)
+            body=json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 2000,
+                "temperature": 0.3,
+                "messages": [{"role": "user", "content": EXTRACT_PROMPT.format(content=content)}]
+            })
         )
+        text = json.loads(response['body'].read())['content'][0]['text'].strip()
 
-        response_body = json.loads(response['body'].read())
-        extracted_text = response_body['content'][0]['text'].strip()
-
-        if extracted_text == "NO_EVENTS":
-            logger.info("LLM returned NO_EVENTS - no short-term events to record")
+        if text == "NO_EVENTS":
+            logger.info("LLM returned NO_EVENTS")
             return None
 
-        # Split by lines and filter empty lines
-        events = [line.strip() for line in extracted_text.split('\n') if line.strip()]
+        events = [line.strip() for line in text.split('\n') if line.strip()]
         logger.info(f"LLM extracted {len(events)} events")
         return events
-
     except Exception as e:
         logger.error(f"Error calling LLM: {e}", exc_info=True)
         return None
 
 
-def write_to_mem0(event: str, digest_date: str, agent_id: str = "dev") -> bool:
-    """Write a single event to mem0 via HTTP API with run_id."""
+def write_to_mem0(event: str, run_id: str, agent_id: str) -> bool:
+    """写入单条事件到 mem0"""
     try:
-        payload = {
+        resp = requests.post(MEM0_API_URL, json={
             "user_id": "boss",
             "agent_id": agent_id,
-            "run_id": digest_date,  # Use date as run_id for short-term memory
+            "run_id": run_id,
             "text": event,
             "metadata": {
                 "category": "short_term",
                 "source": "auto_digest",
-                "digest_date": digest_date,
+                "digest_date": run_id,
                 "workspace_agent": agent_id
             }
-        }
-
-        response = requests.post(MEM0_API_URL, json=payload, timeout=10)
-        response.raise_for_status()
-
+        }, timeout=10)
+        resp.raise_for_status()
         logger.info(f"✓ Wrote to mem0: {event[:80]}...")
         return True
-
     except Exception as e:
         logger.error(f"✗ Failed to write to mem0: {event[:80]}... | Error: {e}")
         return False
 
 
-def process_diary_file(file_path: Path, state: Dict[str, int], digest_date: str, agent_id: str = "dev"):
-    """Process a single diary file."""
-    file_key = str(file_path)
-    last_offset = state.get(file_key, 0)
-
-    # Read new content
-    new_content = read_new_content(file_path, last_offset)
-    if not new_content:
+def process_agent(agent_id: str, workspace: Path, yesterday: str):
+    """处理单个 agent 昨天的完整日记"""
+    diary_file = workspace / "memory" / f"{yesterday}.md"
+    if not diary_file.exists():
+        logger.debug(f"[{agent_id}] No diary for {yesterday}")
         return
 
-    # Extract events using LLM
-    events = call_llm_extract(new_content)
+    content = diary_file.read_text(encoding='utf-8')
+    if not content.strip():
+        logger.info(f"[{agent_id}] Diary for {yesterday} is empty")
+        return
+
+    logger.info(f"[{agent_id}] Processing diary for {yesterday} ({len(content)} bytes)")
+
+    events = call_llm_extract(content)
     if not events:
-        # Even if no events, update offset to avoid reprocessing
-        state[file_key] = file_path.stat().st_size
         return
 
-    # Write each event to mem0
-    success_count = 0
-    for event in events:
-        if write_to_mem0(event, digest_date, agent_id):
-            success_count += 1
-
-    logger.info(f"Successfully wrote {success_count}/{len(events)} events to mem0 (agent: {agent_id})")
-
-    # Update state with current file size
-    state[file_key] = file_path.stat().st_size
+    success = sum(1 for e in events if write_to_mem0(e, yesterday, agent_id))
+    logger.info(f"[{agent_id}] Wrote {success}/{len(events)} events to mem0")
 
 
 def main():
-    """Main entry point."""
     logger.info("=" * 80)
     logger.info("Starting auto_digest.py")
 
-    # 动态发现所有 agent workspace
-    diary_dirs = discover_agents()
-    for diary_dir, agent in diary_dirs:
-        logger.info(f"Found diary directory: {diary_dir} (agent: {agent})")
+    yesterday = get_beijing_yesterday()
+    logger.info(f"Processing diary for: {yesterday}")
 
-    # Get current date in Beijing timezone
-    today = get_beijing_date()
-    logger.info(f"Beijing date: {today}")
+    workspaces = load_agent_workspaces()
+    logger.info(f"Discovered {len(workspaces)} agents: {list(workspaces.keys())}")
 
-    # Load state
-    state = load_state()
-
-    # Check today's diary file in all workspaces
-    yesterday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-
-    files_to_process = []
-    for diary_dir, agent in diary_dirs:
-        # Check today's file
-        today_file = diary_dir / f"{today}.md"
-        yesterday_file = diary_dir / f"{yesterday}.md"
-
-        if yesterday_file.exists():
-            files_to_process.append((yesterday_file, agent))
-            logger.info(f"Found yesterday's file: {yesterday_file} (agent: {agent})")
-        if today_file.exists():
-            files_to_process.append((today_file, agent))
-            logger.info(f"Found today's file: {today_file} (agent: {agent})")
-
-    if not files_to_process:
-        logger.info("No diary files to process")
-        return
-
-    for file_path, agent_id in files_to_process:
-        process_diary_file(file_path, state, today, agent_id)
-
-    # Save state
-    save_state(state)
+    for agent_id, workspace in sorted(workspaces.items()):
+        try:
+            process_agent(agent_id, workspace, yesterday)
+        except Exception as e:
+            logger.error(f"[{agent_id}] Error: {e}", exc_info=True)
 
     logger.info("Auto digest completed")
     logger.info("=" * 80)
@@ -323,5 +199,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        logger.error(f"Fatal error in main: {e}", exc_info=True)
+        logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
