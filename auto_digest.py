@@ -18,7 +18,8 @@ import requests
 
 # ─── Configuration ───
 
-WORKSPACE_BASE = Path("/home/ec2-user/.openclaw/")
+# 优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
+WORKSPACE_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
 
 def discover_agents() -> List[tuple]:
     """动态发现所有 agent workspace，自动找出有 memory 目录的 agent"""

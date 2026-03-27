@@ -20,7 +20,8 @@ from datetime import datetime
 from pathlib import Path
 
 # 配置
-OPENCLAW_BASE = Path("/home/ec2-user/.openclaw/")
+# 配置：优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
+OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
 AGENTS_DIR = OPENCLAW_BASE / "agents"
 
 # 噪音模式：需要过滤的内容
