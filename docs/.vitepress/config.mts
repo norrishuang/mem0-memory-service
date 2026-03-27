@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: 'mem0 Memory Service for OpenClaw',
   description: 'Unified persistent semantic memory service for AI agents, powered by mem0',
   base: '/mem0-memory-service/',
@@ -103,4 +104,4 @@ export default defineConfig({
       copyright: 'Copyright © 2025 norrishuang'
     }
   }
-})
+}))
