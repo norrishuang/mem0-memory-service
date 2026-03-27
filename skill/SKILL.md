@@ -218,7 +218,7 @@ python3 /home/ec2-user/workspace/mem0-memory-service/cli.py history --id <memory
 ## Data Isolation
 
 - `--user boss` — Always use boss
-- `--agent main` / `--agent dev` — Isolated by agent
+- `--agent agent1` / `--agent agent2` — Isolated by agent
 - Omit `--agent` for cross-agent retrieval
 
 ## Notes

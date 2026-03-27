@@ -5,9 +5,9 @@ The mem0 Memory Service acts as the central memory layer for all OpenClaw agents
 ```mermaid
 flowchart TD
     subgraph Agents["OpenClaw Agents"]
-        A1(["dev"])
-        A2(["blog"])
-        A3(["pjm"])
+        A1(["agent1"])
+        A2(["agent2"])
+        A3(["agent3"])
         A4(["..."])
     end
 
