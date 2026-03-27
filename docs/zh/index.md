@@ -29,4 +29,7 @@ features:
   - icon: ⚡
     title: 全自动运维
     details: systemd timer 全程自动化：每 5 分钟会话快照、每 15 分钟日记摘要、每天短期记忆归档。零人工干预。
+  - icon: 🛠️
+    title: 简单易用的 CLI 与 REST API
+    details: 提供完整的 CLI 命令行工具和 FastAPI REST 接口，支持所有记忆操作，方便集成到任意工作流。
 ---
