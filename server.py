@@ -8,6 +8,7 @@ import time
 import json
 import asyncio
 import logging
+import concurrent.futures
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
@@ -26,6 +27,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("mem0-service")
 
 _add_semaphore = asyncio.Semaphore(5)  # max 5 concurrent /memory/add requests
+
+# Fixed-size thread pool for mem0 sync calls — avoids creating a new
+# ThreadPoolExecutor on every memory.add() call (which causes thread accumulation
+# because each pool's idle threads take ~60s to exit).
+# max_workers=4: matches semaphore(5) with a small buffer; mem0 add is I/O bound
+# (Bedrock LLM + embedding + S3Vectors), not CPU bound.
+_mem0_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="mem0-add"
+)
 
 # ─── Audit Log ───
 AUDIT_LOG_DIR = Path(__file__).parent / "audit_logs"
@@ -197,10 +207,15 @@ async def add_memory(req: AddMemoryRequest):
 
     async with _add_semaphore:
         try:
+            loop = asyncio.get_event_loop()
             if req.messages:
-                result = memory.add(req.messages, **kwargs)
+                result = await loop.run_in_executor(
+                    _mem0_executor, lambda: memory.add(req.messages, **kwargs)
+                )
             else:
-                result = memory.add(req.text, **kwargs)
+                result = await loop.run_in_executor(
+                    _mem0_executor, lambda: memory.add(req.text, **kwargs)
+                )
             return {"status": "ok", "result": result}
         except Exception as e:
             err_str = str(e)
@@ -228,7 +243,10 @@ async def search_memory(req: SearchMemoryRequest):
         kwargs["run_id"] = req.run_id
 
     try:
-        results = memory.search(req.query, **kwargs)
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(
+            _mem0_executor, lambda: memory.search(req.query, **kwargs)
+        )
         return {"status": "ok", "results": results}
     except Exception as e:
         logger.error(f"Error searching memory: {e}", exc_info=True)
