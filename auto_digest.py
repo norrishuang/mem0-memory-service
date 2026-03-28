@@ -3,8 +3,8 @@
 auto_digest.py - 自动从日记文件提取短期记忆
 
 两种模式：
-  默认模式：每天 UTC 01:30 运行，读取北京时间昨天的完整日记，写入 mem0（run_id=昨天日期）
-  --today 模式：每 15 分钟增量运行，读取今天日记的新增部分，写入 mem0（run_id=今天日期）
+  默认模式：每天 UTC 01:30 运行，读取北京时间昨天的完整日记，用 LLM 提炼后写入 mem0（run_id=昨天日期）
+  --today 模式：每 15 分钟增量运行，读取今天日记的新增部分，直接 POST 给 mem0（由 mem0 内部做 fact extraction）
 """
 import argparse
 import json
@@ -27,7 +27,9 @@ OFFSET_FILE = Path(__file__).parent / "auto_digest_offset.json"
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 AWS_REGION = "us-east-1"
-MIN_CONTENT_BYTES = 500  # 新增内容少于此值则跳过 LLM
+MIN_CONTENT_BYTES = 500   # 新增内容少于此值则跳过（避免无意义的小更新）
+BATCH_SIZE_BYTES = 50000  # 每批读取的字节数（50KB）
+BATCH_SLEEP_SECS = 5      # 批次间 sleep，避免打爆 mem0
 
 EXTRACT_PROMPT = """你是一个记忆提取助手。以下是一段工作日记内容，请从中提取今天发生的关键短期事件。
 
@@ -171,7 +173,7 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
             "workspace_agent": agent_id
         }
         if incremental:
-            metadata["mode"] = "incremental"
+            metadata["mode"] = "direct"  # 直接写，不经过本地 LLM
 
         resp = requests.post(MEM0_API_URL, json={
             "user_id": "boss",
@@ -179,7 +181,7 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
             "run_id": run_id,
             "text": event,
             "metadata": metadata
-        }, timeout=10)
+        }, timeout=30)
         resp.raise_for_status()
         logger.info(f"✓ Wrote to mem0: {event[:80]}...")
         return True
@@ -188,13 +190,18 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
         return False
 
 
+
+
 def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool = False,
                   offsets: dict | None = None):
     """处理单个 agent 的日记
 
-    incremental=False: 读取整个日记文件（昨日全量模式）
-    incremental=True:  只读取上次 offset 之后的新增内容（今日增量模式）
+    incremental=False: 读取整个日记文件，LLM 提炼后写 mem0（昨日全量模式）
+    incremental=True:  从 offset 开始分批读取（每批 50KB），逐批 POST 给 mem0，
+                       批次间 sleep 避免打爆服务。处理完更新 offset，下次只读新增。
     """
+    import time
+
     diary_file = workspace / "memory" / f"{date}.md"
     if not diary_file.exists():
         logger.debug(f"[{agent_id}] No diary for {date}")
@@ -203,43 +210,72 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
     file_size = diary_file.stat().st_size
 
     if incremental:
-        # 增量模式：只读新增部分
         agent_offsets = offsets.setdefault(agent_id, {})
         prev_offset = agent_offsets.get(date, 0)
 
-        if file_size <= prev_offset:
-            logger.debug(f"[{agent_id}] No new content since last run (offset={prev_offset})")
+        total_new = file_size - prev_offset
+        if total_new <= 0:
+            logger.debug(f"[{agent_id}] No new content (offset={prev_offset})")
             return
 
-        new_bytes = file_size - prev_offset
-        if new_bytes < MIN_CONTENT_BYTES:
-            logger.info(f"[{agent_id}] New content too small ({new_bytes} bytes < {MIN_CONTENT_BYTES}), skipping")
-            # 不更新 offset，等内容更多时再处理
+        if total_new < MIN_CONTENT_BYTES:
+            logger.info(f"[{agent_id}] New content too small ({total_new} bytes < {MIN_CONTENT_BYTES}), skipping")
             return
+
+        logger.info(f"[{agent_id}] Incremental: {total_new} new bytes to process in batches of {BATCH_SIZE_BYTES}B")
+
+        current_offset = prev_offset
+        batch_num = 0
+        total_batches = (total_new + BATCH_SIZE_BYTES - 1) // BATCH_SIZE_BYTES
 
         with open(diary_file, 'rb') as f:
-            f.seek(prev_offset)
-            content = f.read().decode('utf-8', errors='replace')
+            while current_offset < file_size:
+                f.seek(current_offset)
+                raw = f.read(BATCH_SIZE_BYTES)
+                if not raw:
+                    break
 
-        logger.info(f"[{agent_id}] Incremental: reading {new_bytes} new bytes (offset {prev_offset} -> {file_size})")
-        # 更新 offset
-        agent_offsets[date] = file_size
+                batch_content = raw.decode('utf-8', errors='replace')
+                next_offset = current_offset + len(raw)
+                batch_num += 1
+
+                logger.info(f"[{agent_id}] Batch {batch_num}/{total_batches}: "
+                            f"offset {current_offset} -> {next_offset} ({len(raw)} bytes)")
+
+                if batch_content.strip():
+                    ok = write_to_mem0(batch_content, date, agent_id, incremental=True)
+                    if ok:
+                        # 每批成功后立即更新 offset，下次可从断点续传
+                        current_offset = next_offset
+                        agent_offsets[date] = current_offset
+                        save_offsets(offsets)
+                    else:
+                        logger.warning(f"[{agent_id}] Batch {batch_num} failed, stopping to retry next run")
+                        break
+                else:
+                    current_offset = next_offset
+                    agent_offsets[date] = current_offset
+
+                if current_offset < file_size:
+                    time.sleep(BATCH_SLEEP_SECS)
+
+        logger.info(f"[{agent_id}] Done: processed up to offset {agent_offsets.get(date, prev_offset)}/{file_size}")
 
     else:
-        # 全量模式：读取整个文件
+        # 全量模式：读取整个文件，LLM 提炼后写 mem0
         content = diary_file.read_text(encoding='utf-8')
         logger.info(f"[{agent_id}] Full mode: processing diary for {date} ({file_size} bytes)")
 
-    if not content.strip():
-        logger.info(f"[{agent_id}] Content is empty, skipping")
-        return
+        if not content.strip():
+            logger.info(f"[{agent_id}] Content is empty, skipping")
+            return
 
-    events = call_llm_extract(content)
-    if not events:
-        return
+        events = call_llm_extract(content)
+        if not events:
+            return
 
-    success = sum(1 for e in events if write_to_mem0(e, date, agent_id, incremental=incremental))
-    logger.info(f"[{agent_id}] Wrote {success}/{len(events)} events to mem0 (run_id={date})")
+        success = sum(1 for e in events if write_to_mem0(e, date, agent_id, incremental=False))
+        logger.info(f"[{agent_id}] Wrote {success}/{len(events)} events to mem0 (run_id={date})")
 
 
 def main():
