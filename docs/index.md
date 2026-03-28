@@ -25,7 +25,7 @@ features:
     details: Supports OpenSearch (default) and AWS S3 Vectors — switch with a single environment variable
   - icon: ⚡
     title: Real-time Memory
-    details: Two-layer pipeline — session_snapshot writes diary files every 5 min; auto_digest sends new content to mem0 in 50KB batches every 15 min (no local LLM), plus a full daily LLM distill for high-quality retrospective memories.
+    details: Conversations are continuously captured and distilled into memories — recent context is available within minutes, while daily full-context distillation produces higher-quality long-term memories.
   - icon: 🤖
     title: Multi-Agent Support
     details: Isolated memory spaces per agent, with cross-agent search capability. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base.
