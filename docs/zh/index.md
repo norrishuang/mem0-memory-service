@@ -16,7 +16,7 @@ hero:
 features:
   - icon: 🧠
     title: 跨 Session 持久记忆
-    details: OpenClaw 每次对话都是独立 session，本服务打通 session 之间的隔阂——每 5 分钟自动快照对话作为记忆桥梁，每天提炼一次昨日完整日记，上下文永不丢失。
+    details: 两层流水线——session_snapshot 每 5 分钟写日记文件；auto_digest --today 每 15 分钟将新内容分批直接写入 mem0（无本地 LLM），同时每天一次全量 LLM 提炼产出高质量回顾记忆。上下文永不丢失。
   - icon: 🤖
     title: 多 Agent 隔离记忆
     details: 支持多个 Agent 并行运行（agent1 / agent2 / agent3 等），各 Agent 记忆空间完全隔离、互不干扰，从 openclaw.json 自动发现所有 Agent。标记为 `experience` 的记忆自动在所有 Agent 间共享，沉淀团队集体经验。

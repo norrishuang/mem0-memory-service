@@ -473,11 +473,7 @@ def process_agent(agent_id: str) -> None:
             written, new_messages = write_to_memory(messages, diary_path, agent_id, session_key)
 
             if written > 0 and new_messages:
-                try:
-                    write_to_mem0(agent_id, new_messages, session_key, today)
-                    logger.info(f"[{agent_id}] New messages written to mem0 (run_id={today}, {len(new_messages)} messages)")
-                except Exception as e:
-                    logger.warning(f"[{agent_id}] mem0 write failed: {e}")
+                logger.info(f"[{agent_id}] {len(new_messages)} new messages written to diary (mem0 write skipped, handled by auto_digest)")
 
             offsets[session_key] = {"path": str(session_path), "offset": new_offset}
         except Exception as e:
