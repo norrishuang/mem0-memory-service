@@ -12,6 +12,7 @@ audit_logs/
 
 # Auto digest runtime files
 .digest_state.json
+.snapshot_offsets.json
 auto_digest.log
 archive.log
 

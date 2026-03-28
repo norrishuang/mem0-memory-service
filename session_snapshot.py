@@ -31,6 +31,7 @@ OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 USER_ID = "boss"
 BJT = timezone(timedelta(hours=8))
+OFFSET_FILE = Path(__file__).parent / ".snapshot_offsets.json"
 
 # 噪音模式：需要过滤的内容
 NOISE_PATTERNS = [
@@ -219,13 +220,21 @@ def extract_user_message(text: str) -> str | None:
     return text if len(text) > 20 else None
 
 
-def read_session_messages(session_path: Path, max_lines: int = 100) -> list:
-    """读取 session 文件中的消息"""
+def read_session_messages(session_path: Path, offset: int = 0) -> tuple[list, int]:
+    """从 offset 开始读取新消息，返回 (messages, new_offset)"""
     try:
         messages = []
+        file_size = session_path.stat().st_size
+        if file_size < offset:
+            # 文件被轮转/重建，从头读
+            offset = 0
         with open(session_path, 'r') as f:
-            lines = f.readlines()
-        for line in lines[-max_lines:]:
+            f.seek(offset)
+            data = f.read()
+            new_offset = f.tell()
+        if not data:
+            return [], new_offset
+        for line in data.splitlines():
             try:
                 event = json.loads(line.strip())
                 if event.get('type') == 'message':
@@ -258,10 +267,10 @@ def read_session_messages(session_path: Path, max_lines: int = 100) -> list:
                         messages.append({'role': role, 'content': content})
             except json.JSONDecodeError:
                 continue
-        return messages
+        return messages, new_offset
     except Exception as e:
         logger.error(f"Failed to read session: {e}")
-        return []
+        return [], offset
 
 
 def build_message_lines(messages: list, agent_id: str) -> list[str]:
@@ -338,6 +347,17 @@ def write_to_mem0(agent_id: str, new_messages: list[dict], session_key: str, tod
     resp.raise_for_status()
 
 
+def load_offsets() -> dict:
+    try:
+        return json.loads(OFFSET_FILE.read_text()) if OFFSET_FILE.exists() else {}
+    except Exception:
+        return {}
+
+
+def save_offsets(offsets: dict) -> None:
+    OFFSET_FILE.write_text(json.dumps(offsets, indent=2))
+
+
 def process_agent(agent_id: str) -> None:
     """处理单个 agent 的所有 session snapshot"""
     sessions = get_active_session_paths(agent_id)
@@ -347,17 +367,19 @@ def process_agent(agent_id: str) -> None:
 
     diary_path = get_today_memory_path(agent_id)
     today = datetime.now(BJT).strftime("%Y-%m-%d")
-    total_written = 0
+    offsets = load_offsets()
 
     for session_key, session_path in sessions:
         try:
             logger.info(f"[{agent_id}] Processing session {session_key}")
-            messages = read_session_messages(session_path)
+            prev = offsets.get(session_key, {}).get("offset", 0)
+            messages, new_offset = read_session_messages(session_path, prev)
             if not messages:
+                # 即使没消息也更新 offset（文件可能只有非消息行）
+                offsets[session_key] = {"path": str(session_path), "offset": new_offset}
                 continue
 
             written, new_messages = write_to_memory(messages, diary_path, agent_id, session_key)
-            total_written += written
 
             if written > 0 and new_messages:
                 try:
@@ -365,10 +387,12 @@ def process_agent(agent_id: str) -> None:
                     logger.info(f"[{agent_id}] New messages written to mem0 (run_id={today}, {len(new_messages)} messages)")
                 except Exception as e:
                     logger.warning(f"[{agent_id}] mem0 write failed: {e}")
-            else:
-                logger.info(f"[{agent_id}] No new content, skipping mem0 write")
+
+            offsets[session_key] = {"path": str(session_path), "offset": new_offset}
         except Exception as e:
             logger.error(f"[{agent_id}] Error processing session {session_key}: {e}")
+
+    save_offsets(offsets)
 
 
 def main():
