@@ -45,7 +45,29 @@ mem0 and workspace filesystem memory (MEMORY.md + memory/*.md) each have their s
 
 ### Retrieval (Before Every Response)
 
-**Don't wait for the user to ask "do you remember?" — proactively search before answering every question:**
+**Don't wait for the user to ask "do you remember?" — proactively search before answering every question.**
+
+#### 🚨 Mandatory Retrieval Scenarios (no exceptions)
+
+These scenarios **must** trigger mem0 search before responding. Do not skip:
+
+| Scenario | Example phrases | Search strategy |
+|----------|----------------|----------------|
+| **Work review / summary** | "最近做了什么", "这周工作", "最近5天", "what did we work on" | Search with multiple queries (project names, tech keywords); also check memory/YYYY-MM-DD.md diary files AND git log for a complete picture |
+| **Project status** | "PR 进展", "XXX 项目现在怎样", "is this deployed" | Search project name + relevant keywords |
+| **Prior decisions** | "我们当时为什么", "之前是怎么做的", "what did we decide" | Search decision + topic keywords |
+| **Person / team** | "XXX 负责什么", "who works on YYY" | Search person name + role |
+| **Config / environment** | "端口是多少", "服务地址", "what's the API key" | Search service name + config type |
+| **Debugging / troubleshooting** | "这个错误", "上次怎么修的", "have we seen this" | Search error message + component name |
+
+#### 📋 Work Review Checklist
+
+When the user asks about past work (any time range), **always do all three**:
+1. `mem0 search` — semantic memory (structured summaries, lessons learned)
+2. `cat memory/YYYY-MM-DD.md` — raw diary files for the relevant dates
+3. `git log --oneline -20` — precise commit/PR timeline
+
+Do not skip any source. mem0 covers distilled knowledge; diaries cover raw context; git log covers code artifacts.
 
 **Prefer combined search (long-term + recent 7-day short-term):**
 
