@@ -20,3 +20,4 @@ archive.log
 docs/.vitepress/dist
 docs/.vitepress/cache
 node_modules
+auto_digest_offset.json
