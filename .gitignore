@@ -7,6 +7,9 @@ __pycache__/
 dist/
 build/
 
+# Audit logs
+audit_logs/
+
 # Auto digest runtime files
 .digest_state.json
 auto_digest.log

@@ -4,12 +4,15 @@ mem0 Memory Service - FastAPI HTTP API
 Provides unified memory management for all OpenClaw agents.
 """
 import os
+import time
+import json
 import logging
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 # Set AWS region before any boto3 import
@@ -20,6 +23,32 @@ from config import get_mem0_config, SERVICE_HOST, SERVICE_PORT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("mem0-service")
+
+# ─── Audit Log ───
+AUDIT_LOG_DIR = Path(__file__).parent / "audit_logs"
+AUDIT_LOG_RETAIN_DAYS = 7
+
+
+def get_audit_log_path() -> Path:
+    AUDIT_LOG_DIR.mkdir(exist_ok=True)
+    today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    return AUDIT_LOG_DIR / f"audit-{today}.jsonl"
+
+
+def cleanup_old_audit_logs():
+    if not AUDIT_LOG_DIR.exists():
+        return
+    cutoff = datetime.now(timezone.utc) - timedelta(days=AUDIT_LOG_RETAIN_DAYS)
+    for f in AUDIT_LOG_DIR.glob("audit-*.jsonl"):
+        try:
+            date_str = f.stem.replace("audit-", "")
+            file_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            if file_date < cutoff:
+                f.unlink()
+                logger.info(f"Deleted old audit log: {f.name}")
+        except Exception:
+            pass
+
 
 # ─── Global mem0 instance ───
 memory: Optional[Memory] = None
@@ -33,6 +62,7 @@ async def lifespan(app: FastAPI):
     config = get_mem0_config()
     memory = Memory.from_config(config)
     logger.info("✅ mem0 Memory ready")
+    cleanup_old_audit_logs()
     yield
     logger.info("Shutting down mem0 Memory Service")
 
@@ -43,6 +73,52 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def audit_log_middleware(request: Request, call_next):
+    start_time = time.time()
+
+    agent_id = "-"
+    user_id = "-"
+    if request.method == "POST":
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                body = json.loads(body_bytes)
+                agent_id = body.get("agent_id", "-") or "-"
+                user_id = body.get("user_id", "-") or "-"
+
+            async def receive():
+                return {"type": "http.request", "body": body_bytes}
+
+            request = Request(request.scope, receive)
+        except Exception:
+            pass
+
+    response = await call_next(request)
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    client_ip = request.client.host if request.client else "-"
+
+    log_entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "method": request.method,
+        "path": request.url.path,
+        "status": response.status_code,
+        "elapsed_ms": elapsed_ms,
+        "ip": client_ip,
+        "agent_id": agent_id,
+        "user_id": user_id,
+    }
+
+    try:
+        with get_audit_log_path().open("a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to write audit log: {e}")
+
+    return response
 
 
 # ─── Request / Response Models ───
