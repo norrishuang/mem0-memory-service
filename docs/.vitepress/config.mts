@@ -30,6 +30,7 @@ export default withMermaid(defineConfig({
                 { text: '系统架构', link: '/zh/guide/architecture' },
                 { text: '配置说明', link: '/zh/guide/configuration' },
                 { text: '已知问题与 Patch', link: '/zh/guide/known-issues' },
+                { text: '设计决策记录', link: '/zh/guide/design-decisions' },
               ]
             },
             {
@@ -74,6 +75,7 @@ export default withMermaid(defineConfig({
           { text: 'Architecture', link: '/guide/architecture' },
           { text: 'Configuration', link: '/guide/configuration' },
           { text: 'Known Issues & Patches', link: '/guide/known-issues' },
+          { text: 'Design Decisions', link: '/guide/design-decisions' },
         ]
       },
       {
