@@ -13,8 +13,9 @@ flowchart TD
 
     Diary["memory/YYYY-MM-DD.md\n（日记文件）"]
     MemoryMD["MEMORY.md\n（Agent 精选知识库）"]
-    Snap(["session_snapshot.py"])
-    Digest(["auto_digest.py\n（每天，处理昨日日记）"])
+    Snap(["session_snapshot.py\n（每 5 分钟，仅写日记）"])
+    DigestToday(["auto_digest.py --today\n（每 15 分钟，增量分批写入）"])
+    DigestFull(["auto_digest.py\n（每天 UTC 01:30，昨日全量）"])
     Sync(["memory_sync.py\n（每天，同步 MEMORY.md）"])
     Archive(["archive.py"])
 
@@ -39,10 +40,11 @@ flowchart TD
     Agents -- "主动写入\n（无 run_id）" --> LTM
     Agents -- "主动维护" --> MemoryMD
     Snap --> Diary
-    Snap -- "直接写入\n（仅新内容）" --> STM
-    Diary -- "每天 UTC 01:30\n（处理完整昨日日记）" --> Digest
+    Diary -- "每 15 分钟\n（50KB 分批，直接写入）" --> DigestToday
+    Diary -- "每天 UTC 01:30\n（昨日完整日记，LLM 提炼）" --> DigestFull
     MemoryMD -- "每天 UTC 01:00\n（hash 去重）" --> Sync
-    Digest --> STM
+    DigestToday --> STM
+    DigestFull --> STM
     Sync --> LTM
     STM -- "每天 UTC 02:00" --> Archive
     Archive --> Decision
@@ -64,20 +66,23 @@ flowchart TD
 
 | 组件 | 职责 |
 |---|---|
-| **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。同时将新消息直接写入 mem0 短期记忆（run_id=日期），实现跨 session 实时共享——5 分钟内无新内容则跳过。 |
-| **auto_digest.py** | 每天 UTC 01:30 运行。一次性处理**昨天的完整日记**——比增量处理质量更高。使用 LLM 提炼关键事件，写入 mem0 短期记忆（`run_id=日期`）。 |
+| **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。**不再直接写入 mem0**——mem0 的写入完全由 auto_digest 负责。 |
+| **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以 50KB 为一批直接发送给 mem0（由 mem0 内部做 fact extraction）。每批成功后立即持久化 offset，支持断点续传。 |
+| **auto_digest.py**（每日） | 每天 UTC 01:30 运行。通过 LLM 提炼**昨天的完整日记**，一次性处理——利用全天完整上下文产出更高质量的记忆。写入 mem0 短期记忆（`run_id=日期`）。 |
 | **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于内容 hash 去重，文件未变化时零 LLM 调用。 |
 | **archive.py** | 每天 UTC 02:00 运行，将活跃的短期记忆升级为长期记忆（移除 `run_id`），删除不活跃的记忆。 |
 | **mem0 Memory Service** | 核心服务。使用 AWS Bedrock LLM 进行记忆提炼与去重，使用 Bedrock Embedding 进行向量化。 |
 | **向量存储** | 持久化记忆向量，支持 S3 Vectors 或 OpenSearch 作为后端。 |
 | **SKILL.md → 检索** | Agent 新会话启动时，读取 SKILL.md，查询 mem0 获取相关记忆，注入为上下文。 |
 
-## 每日流水线时序（UTC）
+## 流水线时序（UTC）
 
 ```
-01:00  memory_sync   — MEMORY.md → mem0 长期记忆（精选知识，即时生效）
-01:30  auto_digest   — 昨日日记 → mem0 短期记忆（完整当天上下文）
-02:00  archive       — 7天前短期记忆 → 升级或删除
+每 5 分钟    session_snapshot   — 对话 → 日记文件（不写 mem0）
+每 15 分钟   auto_digest --today — 日记新增内容 → mem0 短期记忆（实时，分批写入）
+01:00        memory_sync        — MEMORY.md → mem0 长期记忆（精选知识，即时生效）
+01:30        auto_digest        — 昨日完整日记 → mem0 短期记忆（LLM 高质量提炼）
+02:00        archive            — 7天前短期记忆 → 升级或删除
 ```
 
 ## 记忆分层：长期 vs 短期由谁决定？
@@ -129,20 +134,29 @@ run_id = 不传           →  长期记忆（永久保存）
 
 ## 设计理念
 
-### 为什么 session_snapshot 是必须的
+### 日记到 mem0 的两层流水线
 
-OpenClaw 默认每天 4:00 AM 或空闲超时后重置 session，创建全新上下文窗口。没有桥梁机制，每次 session 重置后所有对话历史都会消失。
+日记 → mem0 的流水线采用两个互补的处理层：
 
-`session_snapshot.py` 就是这座桥：每 5 分钟将对话捕获到日记文件，再由 `auto_digest.py` 提炼进 mem0。新 session 启动时，SKILL.md 触发 mem0 检索——上下文在 session 切换间无缝恢复。
+**第一层 — `auto_digest.py --today`（每 15 分钟，增量）**
 
-### 为什么改为每天一次 digest
+每 15 分钟运行一次，只读取自上次运行以来的新增内容。以 50KB 为单位分批直接发给 mem0，由 mem0 内部做 fact extraction。每批成功后立即保存 offset——即使进程中断，下次运行也能从断点继续。
 
-原始方案每 15 分钟增量处理一次日记，需要 `.digest_state.json` 记录文件偏移量。这带来了：
-- 每个 agent 每天约 96 次 LLM 调用（成本高、每次质量低）
-- 从不完整对话片段中提炼，上下文碎片化
-- 状态管理复杂，容易出现偏移量错位 bug
+这提供了**实时记忆**：最近 15 分钟的对话当天即可被检索到。
 
-改为每天处理**昨天的完整日记**，LLM 能看到一整天发生了什么，产出质量更高，成本降低约 96%。
+**第二层 — `auto_digest.py`（每天，全量 LLM 提炼）**
+
+每天对昨天的完整日记运行一次。LLM 能看到整天发生的全部内容，产出质量更高、去重更彻底的记忆，而不是零散的片段。
+
+这提供了**高质量的回顾性记忆**，无需在每次增量写入时都调用 LLM。
+
+### 为什么 session_snapshot 不再写入 mem0
+
+最初，`session_snapshot.py` 每 5 分钟运行时会直接将新消息写入 mem0。这导致了线程爆炸：每次写入都会同时触发多个 agent 的 mem0 内部 LLM（fact extraction）+ embedding 流水线，将服务打满。
+
+修复方案是清晰的职责分离：
+- `session_snapshot` → **仅写日记文件**（快速，无外部调用）
+- `auto_digest --today` → **写入 mem0**（限速，50KB 分批，批次间 sleep）
 
 ### 为什么 MEMORY.md 是独立路径
 

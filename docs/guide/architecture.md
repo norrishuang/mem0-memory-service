@@ -13,8 +13,9 @@ flowchart TD
 
     Diary["memory/YYYY-MM-DD.md\n(diary files)"]
     MemoryMD["MEMORY.md\n(agent curated knowledge)"]
-    Snap(["session_snapshot.py"])
-    Digest(["auto_digest.py\n(daily, yesterday's diary)"])
+    Snap(["session_snapshot.py\n(every 5 min, diary only)"])
+    DigestToday(["auto_digest.py --today\n(every 15 min, incremental batches)"])
+    DigestFull(["auto_digest.py\n(daily UTC 01:30, yesterday full)"])
     Sync(["memory_sync.py\n(daily, MEMORY.md)"])
     Archive(["archive.py"])
 
@@ -39,10 +40,11 @@ flowchart TD
     Agents -- "active write\n(no run_id)" --> LTM
     Agents -- "actively maintain" --> MemoryMD
     Snap --> Diary
-    Snap -- "direct write\n(new content only)" --> STM
-    Diary -- "daily UTC 01:30\n(yesterday full diary)" --> Digest
+    Diary -- "every 15 min\n(50KB batches, direct write)" --> DigestToday
+    Diary -- "daily UTC 01:30\n(yesterday full diary, LLM distill)" --> DigestFull
     MemoryMD -- "daily UTC 01:00\n(hash dedup)" --> Sync
-    Digest --> STM
+    DigestToday --> STM
+    DigestFull --> STM
     Sync --> LTM
     STM -- "daily UTC 02:00" --> Archive
     Archive --> Decision
@@ -64,20 +66,23 @@ flowchart TD
 
 | Component | Role |
 |---|---|
-| **session_snapshot.py** | Runs every 5 minutes. Captures **all** agent sessions (direct chat + group chats) into daily diary files. Also writes new messages directly to mem0 short-term memory (run_id=date) for real-time cross-session sharing — skipped if no new content in the last 5 minutes. |
-| **auto_digest.py** | Runs daily at UTC 01:30. Processes **yesterday's complete diary** in one pass — higher quality than incremental processing. Extracts key events using LLM and writes to mem0 as short-term memories (`run_id=date`). |
+| **session_snapshot.py** | Runs every 5 minutes. Captures **all** agent sessions (direct chat + group chats) into daily diary files. **Does not write to mem0 directly** — mem0 ingestion is handled entirely by auto_digest. |
+| **auto_digest.py --today** | Runs every 15 minutes. Reads only the **new bytes** added since the last run (tracked via `auto_digest_offset.json`). Sends content to mem0 in 50KB batches directly — mem0 handles fact extraction internally. Offset is persisted after each successful batch, enabling crash-safe resume. |
+| **auto_digest.py** (daily) | Runs daily at UTC 01:30. Processes **yesterday's complete diary** in one pass using LLM distillation — higher quality extraction with full-day context. Writes to mem0 as short-term memories (`run_id=date`). |
 | **memory_sync.py** | Runs daily at UTC 01:00. Syncs each agent's `MEMORY.md` (curated knowledge) directly to mem0 long-term memory. Hash-based dedup skips unchanged files — zero LLM cost if nothing changed. |
 | **archive.py** | Runs daily at UTC 02:00. Promotes active short-term memories to long-term (removes `run_id`); deletes inactive ones. |
 | **mem0 Memory Service** | Core service. Uses AWS Bedrock LLM for memory distillation/deduplication and Bedrock Embedding for vectorization. |
 | **Vector Store** | Persists memory vectors. Supports S3 Vectors or OpenSearch as the backend. |
 | **SKILL.md → Retrieval** | On new agent sessions, reads SKILL.md, queries mem0 for relevant memories, and injects them as context. |
 
-## Daily Pipeline Timeline (UTC)
+## Pipeline Timeline (UTC)
 
 ```
-01:00  memory_sync   — MEMORY.md → mem0 long-term  (curated knowledge, instant)
-01:30  auto_digest   — yesterday's diary → mem0 short-term  (full-day context)
-02:00  archive       — 7-day-old short-term → promote or delete
+Every 5 min   session_snapshot  — conversations → diary files  (no mem0 write)
+Every 15 min  auto_digest --today — diary new bytes → mem0 short-term  (real-time, batched)
+01:00         memory_sync       — MEMORY.md → mem0 long-term  (curated knowledge, instant)
+01:30         auto_digest       — yesterday's diary → mem0 short-term  (full-day LLM distill)
+02:00         archive           — 7-day-old short-term → promote or delete
 ```
 
 ## Memory Tiering: Who Decides Long vs. Short-Term?
@@ -129,20 +134,29 @@ run_id = absent          →  long-term  (permanent)
 
 ## Design Philosophy
 
-### Why session_snapshot exists
+### Two-layer diary-to-mem0 pipeline
 
-OpenClaw resets the active session daily (default 4:00 AM) or after an idle timeout, creating a fresh context window each time. Without a bridge mechanism, all conversation history would be lost on every session reset.
+The diary → mem0 pipeline uses two complementary passes:
 
-`session_snapshot.py` is that bridge: it captures conversations into diary files every 5 minutes, which are then distilled into mem0 by `auto_digest.py`. When a new session starts, SKILL.md triggers a retrieval from mem0 — restoring context seamlessly across session boundaries.
+**Layer 1 — `auto_digest.py --today` (every 15 min, incremental)**
 
-### Why daily digest instead of incremental
+Runs every 15 minutes, reading only new diary content since the last run. Sends 50KB batches directly to mem0, letting mem0's own fact extraction handle distillation. Offset is saved after each successful batch — if the process is interrupted, the next run picks up where it left off.
 
-The original design processed diary files incrementally every 15 minutes, requiring complex offset tracking via `.digest_state.json`. This caused:
-- ~96 LLM calls/day per agent (high cost, low quality per call)
-- Fragmented extraction from partial conversations
-- Complex state management prone to desync bugs
+This provides **real-time memory**: conversations from the last 15 minutes are available for retrieval within the same day.
 
-Processing yesterday's **complete diary once** per day gives the LLM full context of everything that happened, producing higher-quality memories at 1/96th the cost.
+**Layer 2 — `auto_digest.py` (daily, full LLM distill)**
+
+Runs once per day on yesterday's complete diary. With the full day's context available, the LLM produces higher-quality, deduplicated memories that capture the day's overall arc rather than isolated fragments.
+
+This provides **high-quality retrospective memory** without the cost of running LLM on every incremental batch.
+
+### Why session_snapshot no longer writes to mem0
+
+Originally, `session_snapshot.py` wrote new messages directly to mem0 on every 5-minute run. This caused thread explosion: each write triggered mem0's internal LLM (fact extraction) + embedding pipeline simultaneously across multiple agents, overwhelming the service.
+
+The fix is clean separation of concerns:
+- `session_snapshot` → **diary files only** (fast, no external calls)
+- `auto_digest --today` → **mem0 writes** (rate-controlled, 50KB batches with sleep between)
 
 ### Why MEMORY.md sync is a separate path
 
