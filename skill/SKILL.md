@@ -4,7 +4,7 @@ description: |
   mem0 vector memory system. Access the local mem0 Memory Service via CLI for semantic memory storage, retrieval, and management.
 
   **Use this Skill when**:
-  (1) Before answering any user question, search to retrieve relevant memories first
+  (1) Before answering any user question — MANDATORY, even if context seems sufficient
   (2) After completing a task or a substantive conversation round (automatic distillation)
   (3) User mentions "记住", "记一下", "remember", "recall"
   (4) Need to recall/retrieve previous information
@@ -45,24 +45,26 @@ mem0 and workspace filesystem memory (MEMORY.md + memory/*.md) each have their s
 
 ### Retrieval (Before Every Response)
 
-**Don't wait for the user to ask "do you remember?" — proactively search before answering every question:**
+> ⚠️ **MANDATORY — No exceptions**: Search mem0 before answering **every** user question, even if the answer seems obvious from context. The current session context may be stale, partial, or missing cross-session updates from other agents.
 
-**Prefer combined search (long-term + recent 7-day short-term):**
+**Why this is non-negotiable:**
+- Another agent may have written relevant updates to mem0 in the last 5 minutes
+- Your current session context was loaded at session start — it does not update in real-time
+- Skipping search means silently ignoring potentially critical cross-session information
+
+**What to search for:** Extract 1-3 keywords from the user's question and search:
 
 ```bash
 {baseDir}/scripts/mem0.sh search \
-  --user boss --agent main \
+  --user boss --agent <your-agent-id> \
   --query "<keywords extracted from user question>" \
   --combined --recent-days 7
 ```
 
-**Or search long-term memory only:**
-
-```bash
-{baseDir}/scripts/mem0.sh search \
-  --user boss --agent main \
-  --query "<keywords extracted from user question>"
-```
+**When you may skip search (rare exceptions):**
+- Pure arithmetic or factual questions with no project context (e.g. "what is 2+2")
+- The user explicitly says "don't search memory"
+- You already searched mem0 in the same response turn for the same topic
 
 ### Writing (After Every Task Completion)
 
