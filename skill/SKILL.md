@@ -6,7 +6,7 @@ description: |
   **Use this Skill when**:
   (1) Before answering any user question, search to retrieve relevant memories first
   (2) After completing a task or a substantive conversation round (automatic distillation)
-  (3) User mentions "记住", "记一下", "remember", "recall"
+  (3) User mentions "remember this", "recall", "what do you remember about"
   (4) Need to recall/retrieve previous information
   (5) Need to list, update, or delete existing memories
   (6) Automatic distillation during heartbeats
@@ -53,12 +53,12 @@ These scenarios **must** trigger mem0 search before responding. Do not skip:
 
 | Scenario | Example phrases | Search strategy |
 |----------|----------------|----------------|
-| **Work review / summary** | "最近做了什么", "这周工作", "最近5天", "what did we work on" | Search with multiple queries (project names, tech keywords); also check memory/YYYY-MM-DD.md diary files AND git log for a complete picture |
-| **Project status** | "PR 进展", "XXX 项目现在怎样", "is this deployed" | Search project name + relevant keywords |
-| **Prior decisions** | "我们当时为什么", "之前是怎么做的", "what did we decide" | Search decision + topic keywords |
-| **Person / team** | "XXX 负责什么", "who works on YYY" | Search person name + role |
-| **Config / environment** | "端口是多少", "服务地址", "what's the API key" | Search service name + config type |
-| **Debugging / troubleshooting** | "这个错误", "上次怎么修的", "have we seen this" | Search error message + component name |
+| **Work review / summary** | "what did we work on recently", "last 5 days", "this week's progress", "summarize recent work" | Search with multiple queries (project names, tech keywords); also check memory/YYYY-MM-DD.md diary files AND git log for a complete picture |
+| **Project status** | "what's the status of PR XXX", "is this deployed", "how is project YYY going" | Search project name + relevant keywords |
+| **Prior decisions** | "why did we choose X", "how did we do this before", "what did we decide" | Search decision + topic keywords |
+| **Person / team** | "who works on YYY", "what is XXX responsible for" | Search person name + role |
+| **Config / environment** | "what port does it use", "what's the service address", "what's the API key" | Search service name + config type |
+| **Debugging / troubleshooting** | "we've seen this error before", "how did we fix this last time", "have we seen this" | Search error message + component name |
 
 #### 📋 Work Review Checklist
 
