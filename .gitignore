@@ -21,3 +21,8 @@ docs/.vitepress/dist
 docs/.vitepress/cache
 node_modules
 auto_digest_offset.json
+
+# Audit shipper runtime files
+.audit_shipper_state.json
+audit_shipper.log
+memory_sync.log
