@@ -203,10 +203,16 @@ async def add_memory(req: AddMemoryRequest):
                 result = memory.add(req.text, **kwargs)
             return {"status": "ok", "result": result}
         except Exception as e:
+            err_str = str(e)
+            # event=NONE is normal: mem0's LLM decided no update needed, but
+            # the internal update API rejects NONE — harmless, not a real error.
+            if '"event": "NONE"' in err_str or ("NONE" in err_str and "Parameter validation failed" in err_str):
+                logger.warning(f"Ignored event=NONE from mem0 (no action needed): {err_str}")
+                return {"status": "ok", "result": {"results": [], "relations": []}, "note": "event=NONE skipped"}
             logger.error(f"Error adding memory: {e}", exc_info=True)
-            if "Parameter validation failed" in str(e) or "float32" in str(e):
+            if "Parameter validation failed" in err_str or "float32" in err_str:
                 raise HTTPException(status_code=503, detail="Embedding service temporarily unavailable")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=err_str)
 
 
 @app.post("/memory/search")
