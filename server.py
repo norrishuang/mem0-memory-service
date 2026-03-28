@@ -6,6 +6,7 @@ Provides unified memory management for all OpenClaw agents.
 import os
 import time
 import json
+import asyncio
 import logging
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
@@ -23,6 +24,8 @@ from config import get_mem0_config, SERVICE_HOST, SERVICE_PORT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("mem0-service")
+
+_add_semaphore = asyncio.Semaphore(5)  # max 5 concurrent /memory/add requests
 
 # ─── Audit Log ───
 AUDIT_LOG_DIR = Path(__file__).parent / "audit_logs"
@@ -192,15 +195,18 @@ async def add_memory(req: AddMemoryRequest):
     if req.metadata:
         kwargs["metadata"] = req.metadata
 
-    try:
-        if req.messages:
-            result = memory.add(req.messages, **kwargs)
-        else:
-            result = memory.add(req.text, **kwargs)
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"Error adding memory: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    async with _add_semaphore:
+        try:
+            if req.messages:
+                result = memory.add(req.messages, **kwargs)
+            else:
+                result = memory.add(req.text, **kwargs)
+            return {"status": "ok", "result": result}
+        except Exception as e:
+            logger.error(f"Error adding memory: {e}", exc_info=True)
+            if "Parameter validation failed" in str(e) or "float32" in str(e):
+                raise HTTPException(status_code=503, detail="Embedding service temporarily unavailable")
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/memory/search")
@@ -370,4 +376,12 @@ async def memory_history(memory_id: str):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host=SERVICE_HOST, port=SERVICE_PORT, log_level="info")
+    uvicorn.run(
+        app,
+        host=SERVICE_HOST,
+        port=SERVICE_PORT,
+        log_level="info",
+        workers=1,
+        limit_concurrency=20,
+        timeout_keep_alive=5,
+    )
