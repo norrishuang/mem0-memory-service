@@ -1,0 +1,18 @@
+[Unit]
+Description=mem0 Audit Log Shipper - ship audit logs to OpenSearch
+After=mem0-memory.service
+Wants=mem0-memory.service
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
+EnvironmentFile=/home/ec2-user/workspace/mem0-memory-service/.env
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/audit_shipper.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
