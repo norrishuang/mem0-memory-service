@@ -3,15 +3,18 @@
 session_snapshot.py - 实时保存当前活跃 session 的对话到 memory 文件
 
 解决痛点：session 压缩时对话内容丢失
-解决思路：直接读取 session jsonl 文件，定期保存到日记
+解决思路：直接读取 session jsonl 文件，定期保存到日记（增量写入，offset 追踪）
 
-优化：过滤噪音内容，只记录用户消息和最终 AI 响应
+优化：
+- 过滤噪音内容，只记录用户消息和最终 AI 响应
+- 基于文件 offset 增量读取，永不重复写入旧消息
+- 单日日记大小保护（默认 200KB），超限时裁剪保留最新内容
+- 写入前文件锁防止并发重复写入
 
-方案 A：覆盖所有 agent，每个 agent 的对话写入各自的 workspace memory 目录
-
-建议 crontab: 每 15 分钟执行一次
-*/15 * * * * /home/ec2-user/workspace/mem0-memory-service/session_snapshot.py >> /var/log/mem0-snapshot.log 2>&1
+建议 crontab: 每 5 分钟执行一次
+*/5 * * * * /home/ec2-user/workspace/mem0-memory-service/session_snapshot.py >> /var/log/mem0-snapshot.log 2>&1
 """
+import fcntl
 import os
 import json
 import logging
@@ -21,6 +24,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import requests
+
+# ── 单日日记大小保护 ──────────────────────────────────────────────────────────
+# 超过此阈值时，日记文件将被裁剪为只保留最新内容（保留最后 MAX_DIARY_LINES 行）
+MAX_DIARY_BYTES = int(os.environ.get("MAX_DIARY_BYTES", 200 * 1024))   # 200 KB
+MAX_DIARY_LINES = int(os.environ.get("MAX_DIARY_LINES", 800))           # 裁剪后保留最新 800 行
 
 # 配置：优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
 OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
@@ -185,6 +193,60 @@ def init_memory_file(path: Path, agent_id: str) -> None:
         logger.info(f"Created memory file: {path}")
 
 
+def trim_diary_if_oversized(path: Path, agent_id: str) -> bool:
+    """日记大小保护：超过 MAX_DIARY_BYTES 时裁剪，只保留最新 MAX_DIARY_LINES 行。
+
+    保留文件头（# 标题 + ## Session 记录 段落），再追加最新 MAX_DIARY_LINES 行。
+    返回 True 表示执行了裁剪，False 表示未超限。
+    """
+    try:
+        if not path.exists():
+            return False
+        size = path.stat().st_size
+        if size <= MAX_DIARY_BYTES:
+            return False
+
+        logger.warning(
+            f"[{agent_id}] Diary {path.name} is {size // 1024}KB (>{MAX_DIARY_BYTES // 1024}KB limit), trimming..."
+        )
+        content = path.read_text(encoding='utf-8')
+        lines = content.splitlines()
+
+        # 提取文件头（前两个 ## 章节之前的内容）
+        header_end = 0
+        section_count = 0
+        for i, line in enumerate(lines):
+            if line.startswith('## '):
+                section_count += 1
+                if section_count >= 2:
+                    header_end = i
+                    break
+        else:
+            header_end = min(10, len(lines))
+
+        header = '\n'.join(lines[:header_end])
+        tail = lines[-MAX_DIARY_LINES:]
+
+        trimmed = (
+            header
+            + f"\n\n> ⚠️ 日记超过 {MAX_DIARY_BYTES // 1024}KB 上限，已自动裁剪，仅保留最新 {MAX_DIARY_LINES} 行。"
+              f" 裁剪时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+            + '\n'.join(tail)
+            + '\n'
+        )
+
+        path.write_text(trimmed, encoding='utf-8')
+        new_size = path.stat().st_size
+        logger.info(
+            f"[{agent_id}] Trimmed diary from {size // 1024}KB to {new_size // 1024}KB "
+            f"(kept last {MAX_DIARY_LINES} lines)"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"[{agent_id}] Failed to trim diary: {e}")
+        return False
+
+
 def get_active_session_paths(agent_id: str) -> list[tuple[str, Path]]:
     """返回 [(session_key, session_path), ...] 列表，包含所有活跃 session"""
     session_store = AGENTS_DIR / agent_id / "sessions" / "sessions.json"
@@ -286,41 +348,70 @@ def build_message_lines(messages: list, agent_id: str) -> list[str]:
 
 def write_to_memory(messages: list, path: Path, agent_id: str, session_key: str = "") -> tuple[int, list[dict]]:
     """写入 session 消息到 memory 文件，只写入尚未出现过的新消息行。
-    返回 (写入行数, 新消息列表)"""
+
+    使用文件级互斥锁（LOCK_EX）防止并发进程重复写入同一文件。
+    写入前检查日记大小，超过 MAX_DIARY_BYTES 时自动裁剪。
+
+    返回 (写入行数, 新消息列表)
+    """
     if not messages:
         return 0, []
 
     init_memory_file(path, agent_id)
 
-    # 读取已有内容，用于去重
+    # 使用文件锁防止并发写入导致重复（lock file 与 diary 同目录）
+    lock_path = path.with_suffix('.lock')
     try:
-        existing = path.read_text(encoding='utf-8')
-    except:
-        existing = ""
-
-    # 过滤掉已经写过的行（不带时间戳，纯内容比较）
-    all_lines = build_message_lines(messages, agent_id)
-    new_indices = [i for i, line in enumerate(all_lines) if line not in existing]
-    new_lines = [all_lines[i] for i in new_indices]
-
-    if not new_lines:
-        logger.debug(f"[{agent_id}] All messages already recorded, skipping")
+        lock_fd = open(lock_path, 'w')
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        logger.warning(f"[{agent_id}] Another process is writing to {path.name}, skipping this round")
         return 0, []
-
-    time_marker = datetime.now().strftime("%H:%M")
-    label = f" Session {session_key}" if session_key else " Session snapshot"
-    block = f"\n### [{time_marker}]{label}\n" + "\n".join(new_lines) + "\n"
-
-    new_messages = [messages[i] for i in new_indices]
+    except Exception as e:
+        logger.warning(f"[{agent_id}] Could not acquire lock: {e}, proceeding without lock")
+        lock_fd = None
 
     try:
+        # 先做日记大小保护（裁剪超大日记）
+        trim_diary_if_oversized(path, agent_id)
+
+        # 读取已有内容，用于内容级去重（双重保险：offset 是主防线，内容比较是后备）
+        try:
+            existing = path.read_text(encoding='utf-8')
+        except Exception:
+            existing = ""
+
+        # 过滤掉已经写过的行（纯内容比较，不依赖时间戳）
+        all_lines = build_message_lines(messages, agent_id)
+        new_indices = [i for i, line in enumerate(all_lines) if line not in existing]
+        new_lines = [all_lines[i] for i in new_indices]
+
+        if not new_lines:
+            logger.debug(f"[{agent_id}] All messages already recorded, skipping")
+            return 0, []
+
+        time_marker = datetime.now().strftime("%H:%M")
+        label = f" Session {session_key}" if session_key else " Session snapshot"
+        block = f"\n### [{time_marker}]{label}\n" + "\n".join(new_lines) + "\n"
+
+        new_messages = [messages[i] for i in new_indices]
+
         with open(path, 'a', encoding='utf-8') as f:
             f.write(block)
         logger.info(f"[{agent_id}] Wrote {len(new_lines)} new messages to {path}")
         return len(new_lines), new_messages
+
     except Exception as e:
         logger.error(f"[{agent_id}] Failed to write: {e}")
         return 0, []
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+                lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def discover_agents() -> list[str]:
