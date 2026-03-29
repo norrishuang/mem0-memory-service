@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-archive.py - 归档短期记忆
+auto_dream.py - AutoDream 记忆沉淀（夜间自动巩固）
 
 每天运行一次，处理所有 agent 7天前的短期记忆：
 1. 从 openclaw.json 发现所有 agent（与 session_snapshot / auto_digest 保持一致）
@@ -8,6 +8,8 @@ archive.py - 归档短期记忆
 3. 对每条记忆，用其内容在近7天短期记忆中做语义搜索
 4. 如果有相关讨论（score > 0.75）→ 升级为长期记忆（无 run_id 写入）
 5. 如果没有相关讨论 → 直接删除
+
+Inspired by how human brains consolidate short-term into long-term memories during sleep.
 """
 
 import json
@@ -24,7 +26,7 @@ BASE_URL = "http://127.0.0.1:8230"
 USER_ID = "boss"
 ARCHIVE_DAYS = 7        # 处理多少天前的短期记忆
 ACTIVE_THRESHOLD = 0.75  # 活跃度判断阈值（语义相似度）
-LOG_FILE = Path(__file__).parent / "archive.log"
+LOG_FILE = Path(__file__).parent.parent / "auto_dream.log"
 
 # 优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
 OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
@@ -134,7 +136,7 @@ def promote_to_long_term(agent_id: str, memory_text: str, original_metadata: dic
     metadata = {k: v for k, v in (original_metadata or {}).items()
                 if k not in ("category", "source", "digest_date")}
     metadata["category"] = "experience"
-    metadata["source"] = "archive_promoted"
+    metadata["source"] = "autodream_promoted"
 
     payload = {
         "user_id": USER_ID,
@@ -204,7 +206,7 @@ def archive_agent(agent_id: str, target_run_id: str) -> tuple[int, int]:
 
 def main():
     logger.info("=" * 80)
-    logger.info("Starting archive.py")
+    logger.info("Starting auto_dream.py (AutoDream consolidation)")
 
     tz_beijing = timezone(timedelta(hours=8))
     today = datetime.now(tz_beijing).date()
@@ -228,7 +230,7 @@ def main():
         except Exception as e:
             logger.error(f"[{agent_id}] Fatal error: {e}", exc_info=True)
 
-    logger.info(f"\nArchive complete (all agents):")
+    logger.info(f"\nAutoDream complete (all agents):")
     logger.info(f"  - Promoted to long-term: {total_promoted}")
     logger.info(f"  - Deleted as inactive:   {total_deleted}")
     logger.info(f"  - Total processed:       {total_promoted + total_deleted}")

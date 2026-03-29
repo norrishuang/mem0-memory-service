@@ -13,7 +13,11 @@ Source data in OpenSearch is NOT deleted.
 """
 import argparse
 import logging
+import os
 import sys
+
+# Ensure config.py is importable (parent directory)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from config import (
     OPENSEARCH_HOST, OPENSEARCH_PORT, OPENSEARCH_USER, OPENSEARCH_PASSWORD,

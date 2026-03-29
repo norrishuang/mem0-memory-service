@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: "mem0 Memory Service for OpenClaw"
-  text: "Persistent Semantic Memory for AI Agents"
-  tagline: Long-term & short-term memory management powered by mem0, OpenSearch and AWS S3 Vectors
+  text: "Your AI Agents Never Forget"
+  tagline: "Real-time memory capture, intelligent recall, and nightly AutoDream consolidation — powered by mem0 + AWS"
   actions:
     - theme: brand
       text: Get Started
@@ -17,15 +17,15 @@ features:
   - icon: 🧠
     title: Semantic Memory
     details: Store and retrieve memories using natural language queries powered by vector embeddings
-  - icon: 🔄
-    title: Long & Short Term
-    details: Automatic tiered memory management — short-term memories auto-archive to long-term after 7 days
+  - icon: 🌙
+    title: AutoDream Consolidation
+    details: "Every night, AutoDream does what human brains do during sleep — consolidates the day's short-term memories into long-term knowledge, and quietly discards what's no longer relevant."
   - icon: 🗄️
     title: Flexible Vector Store
     details: Supports OpenSearch (default) and AWS S3 Vectors — switch with a single environment variable
   - icon: ⚡
-    title: Real-time Memory
-    details: Conversations are continuously captured and distilled into memories — recent context is available within minutes, while daily full-context distillation produces higher-quality long-term memories.
+    title: Real-time Capture
+    details: "Every conversation is continuously snapshotted and distilled within minutes. Nothing is lost between sessions."
   - icon: 🤖
     title: Multi-Agent Support
     details: Isolated memory spaces per agent, with cross-agent search capability. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base.

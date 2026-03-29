@@ -39,7 +39,7 @@ OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 USER_ID = "boss"
 BJT = timezone(timedelta(hours=8))
-OFFSET_FILE = Path(__file__).parent / ".snapshot_offsets.json"
+OFFSET_FILE = Path(__file__).parent.parent / ".snapshot_offsets.json"
 
 # 噪音模式：需要过滤的内容
 NOISE_PATTERNS = [

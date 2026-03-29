@@ -6,7 +6,7 @@ After=network.target mem0-memory.service
 Type=oneshot
 User=ec2-user
 WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
-ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/memory_sync.py
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/pipelines/memory_sync.py
 StandardOutput=append:/home/ec2-user/workspace/mem0-memory-service/memory_sync.log
 StandardError=append:/home/ec2-user/workspace/mem0-memory-service/memory_sync.log
 

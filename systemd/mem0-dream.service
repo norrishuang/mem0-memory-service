@@ -1,0 +1,18 @@
+[Unit]
+Description=mem0 AutoDream - nightly memory consolidation
+Documentation=https://github.com/norrishuang/mem0-memory-service
+After=network.target mem0-memory.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/pipelines/auto_dream.py
+StandardOutput=append:/home/ec2-user/workspace/mem0-memory-service/auto_dream.log
+StandardError=append:/home/ec2-user/workspace/mem0-memory-service/auto_dream.log
+
+# Environment variables (if needed)
+# EnvironmentFile=/home/ec2-user/workspace/mem0-memory-service/.env
+
+[Install]
+WantedBy=multi-user.target
