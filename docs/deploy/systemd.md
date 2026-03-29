@@ -35,16 +35,16 @@ Extracts short-term events from diary files and stores them in mem0 with `run_id
 (crontab -l 2>/dev/null; echo "*/15 * * * * /usr/bin/python3 /path/to/auto_digest.py >> /path/to/auto_digest.log 2>&1") | crontab -
 ```
 
-### Archive (daily at UTC 02:00)
+### AutoDream (daily at UTC 02:00)
 
 Processes short-term memories older than 7 days — active topics are upgraded to long-term, inactive ones are deleted.
 
 ```bash
-sudo cp mem0-archive.service /etc/systemd/system/
-sudo cp mem0-archive.timer /etc/systemd/system/
+sudo cp mem0-dream.service /etc/systemd/system/
+sudo cp mem0-dream.timer /etc/systemd/system/
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-archive.timer
+sudo systemctl enable --now mem0-dream.timer
 ```
 
 ### Verify Timers
@@ -52,21 +52,21 @@ sudo systemctl enable --now mem0-archive.timer
 ```bash
 # Check timer status
 systemctl --user list-timers mem0-snapshot.timer
-sudo systemctl list-timers mem0-archive.timer
+sudo systemctl list-timers mem0-dream.timer
 
 # Manually trigger
 systemctl --user start mem0-snapshot.service
-sudo systemctl start mem0-archive.service
+sudo systemctl start mem0-dream.service
 
 # View logs
 journalctl --user -u mem0-snapshot.service -f
-journalctl -u mem0-archive.service -f
+journalctl -u mem0-dream.service -f
 ```
 
 ## Task Summary
 
 | Task | Frequency | Method | Purpose |
 |------|-----------|--------|---------|
-| `session_snapshot.py` | Every 5 min | systemd user timer | Save session conversations to diary |
-| `auto_digest.py` | Every 15 min | cron | Extract short-term memories from diary |
-| `archive.py` | Daily 02:00 UTC | systemd system timer | Archive/delete old short-term memories |
+| `pipelines/session_snapshot.py` | Every 5 min | systemd user timer | Save session conversations to diary |
+| `pipelines/auto_digest.py` | Every 15 min | cron | Extract short-term memories from diary |
+| `pipelines/auto_dream.py` | Daily 02:00 UTC | systemd system timer | **AutoDream**: Archive/delete old short-term memories |

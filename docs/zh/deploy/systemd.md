@@ -35,16 +35,16 @@ systemctl --user enable --now mem0-snapshot.timer
 (crontab -l 2>/dev/null; echo "*/15 * * * * /usr/bin/python3 /path/to/auto_digest.py >> /path/to/auto_digest.log 2>&1") | crontab -
 ```
 
-### 归档（每天 UTC 02:00）
+### AutoDream（每天 UTC 02:00）
 
 处理超过 7 天的短期记忆 — 活跃主题升级为长期记忆，不活跃的则删除。
 
 ```bash
-sudo cp mem0-archive.service /etc/systemd/system/
-sudo cp mem0-archive.timer /etc/systemd/system/
+sudo cp mem0-dream.service /etc/systemd/system/
+sudo cp mem0-dream.timer /etc/systemd/system/
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-archive.timer
+sudo systemctl enable --now mem0-dream.timer
 ```
 
 ### 验证定时器
@@ -52,21 +52,21 @@ sudo systemctl enable --now mem0-archive.timer
 ```bash
 # 检查定时器状态
 systemctl --user list-timers mem0-snapshot.timer
-sudo systemctl list-timers mem0-archive.timer
+sudo systemctl list-timers mem0-dream.timer
 
 # 手动触发
 systemctl --user start mem0-snapshot.service
-sudo systemctl start mem0-archive.service
+sudo systemctl start mem0-dream.service
 
 # 查看日志
 journalctl --user -u mem0-snapshot.service -f
-journalctl -u mem0-archive.service -f
+journalctl -u mem0-dream.service -f
 ```
 
 ## 任务总览
 
 | 任务 | 频率 | 方式 | 用途 |
 |------|-----------|--------|---------|
-| `session_snapshot.py` | 每 5 分钟 | systemd 用户定时器 | 保存会话对话到日记 |
-| `auto_digest.py` | 每 15 分钟 | cron | 从日记中提取短期记忆 |
-| `archive.py` | 每天 02:00 UTC | systemd 系统定时器 | 归档/删除过期短期记忆 |
+| `pipelines/session_snapshot.py` | 每 5 分钟 | systemd 用户定时器 | 保存会话对话到日记 |
+| `pipelines/auto_digest.py` | 每 15 分钟 | cron | 从日记中提取短期记忆 |
+| `pipelines/auto_dream.py` | 每天 02:00 UTC | systemd 系统定时器 | **AutoDream**：归档/删除过期短期记忆 |

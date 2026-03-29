@@ -98,7 +98,7 @@ On every heartbeat tick, the agent performs memory maintenance in order:
                        (run_id=date)  (no run_id)
                             │
                        UTC 02:00
-                        archive
+                       AutoDream
                             │
                   ┌─────────┴──────────┐
                   ▼                    ▼
@@ -113,10 +113,10 @@ All automation runs as systemd user timers:
 
 | Time (UTC) | Script | What it does |
 |-----------|--------|--------------|
-| Every 5 min | `session_snapshot.py` | Capture session conversations → diary file |
-| 01:00 | `memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
-| 01:30 | `auto_digest.py` | Extract yesterday's complete diary → mem0 short-term |
-| 02:00 | `archive.py` | Evaluate 7-day-old short-term → promote or delete |
+| Every 5 min | `pipelines/session_snapshot.py` | Capture session conversations → diary file |
+| 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
+| 01:30 | `pipelines/auto_digest.py` | Extract yesterday's complete diary → mem0 short-term |
+| 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Evaluate 7-day-old short-term → promote or delete |
 
 ## Two Roles of session_snapshot
 
@@ -155,7 +155,7 @@ Both paths write to the same `memory/YYYY-MM-DD.md` file. Content-level deduplic
 | Path | Source | Latency | When to use |
 |------|--------|---------|-------------|
 | **memory_sync.py** | `MEMORY.md` | Same day | Agent-curated knowledge, important decisions |
-| **auto_digest + archive** | Daily diary | 7 days | Recurring discussions, gradual context buildup |
+| **auto_digest + AutoDream** | Daily diary | 7 days | Recurring discussions, gradual context buildup |
 | **Explicit CLI write** | Agent on-demand | Immediate | Time-sensitive facts, mid-conversation decisions |
 
 ```bash
@@ -201,7 +201,7 @@ If the new session starts before 01:30, mem0 doesn't have last night's content y
 | Yesterday after-midnight to 01:30 | `memory/yesterday.md` (gap buffer) |
 | Yesterday 01:30 onward | mem0 short-term (distilled) |
 | Last 7 days | mem0 short-term (`--combined`) |
-| Older than 7 days | mem0 long-term (archive-promoted) |
+| Older than 7 days | mem0 long-term (AutoDream-promoted) |
 
 All three sources together — today's diary + yesterday's diary + mem0 — create **zero blind spots** across all session reset scenarios.
 
