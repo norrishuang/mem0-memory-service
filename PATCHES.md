@@ -46,16 +46,26 @@ python3 patch_s3vectors_filter.py
 
 ## Patch 4: 添加 MiniMax M2.5 模型支持 (Bedrock)
 
-- **问题**: mem0 的 `aws_bedrock` provider 的 `PROVIDERS` 列表不包含 `minimax`，导致使用 `minimax.minimax-m2.5` 时报 `ValueError: Unknown provider`；另外 MiniMax M2.5 是推理模型，响应 `content` 数组中第一个是 `reasoningContent`，不能直接取 `[0]["text"]`
-- **修复**: 在 `mem0/llms/aws_bedrock.py` 中：
-  1. `PROVIDERS` 列表加入 `"minimax"`
-  2. `_generate_standard` 方法加入 MiniMax Converse API 分支，遍历 content blocks 找第一个含 `text` 的块（跳过 reasoningContent）
-- **一键 patch**：
-  ```bash
-  python3 patch_minimax_support.py
-  ```
+### 问题 1: PROVIDERS 不认识 minimax
+- **现象**: 使用 `minimax.minimax-m2.5` 时报 `ValueError: Unknown provider in model`
+- **修复**: `PROVIDERS` 列表加入 `"minimax"`
 
-> ⚠️ `pip install --upgrade mem0ai` 后需重新执行本脚本，直到 mem0 官方支持 MiniMax 为止。
+### 问题 2: 推理模型响应格式
+- **现象**: MiniMax M2.5 是推理模型，Converse API 响应的 `content` 数组第一块是 `reasoningContent`（思维链），直接取 `[0]["text"]` 报 `KeyError`
+- **修复**: 遍历 content blocks，找第一个含 `"text"` key 的块，跳过 `reasoningContent`
+
+### 问题 3: system 消息丢失导致 JSON 解析失败
+- **现象**: mem0 的 fact extraction 会传 `role=system` 的消息（要求返回 JSON），原实现只取 `messages[-1]` 传给 Converse API，system prompt 被完全丢弃。MiniMax 收不到格式要求，自由发挥输出 markdown，mem0 解析 JSON 失败报 `Error in new_retrieved_facts: Expecting value: line 1 column 1`
+- **修复**: 遍历所有消息，`role=system` 的内容通过 Converse API 顶层 `system` 参数传入，其余消息组成 `messages` 列表
+
+**一键 patch**：
+```bash
+python3 patch_minimax_support.py
+```
+
+**对应 upstream PR**: [mem0ai/mem0#4609](https://github.com/mem0ai/mem0/pull/4609)
+
+> ⚠️ `pip install --upgrade mem0ai` 后需重新执行本脚本，直到 PR 合并为止。
 
 ## 检查 PR 状态
 
