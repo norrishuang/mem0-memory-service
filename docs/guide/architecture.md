@@ -63,7 +63,7 @@ flowchart TD
 | **session_snapshot.py** | Runs every 5 minutes. Captures **all** agent sessions (direct chat + group chats) into daily diary files. **Does not write to mem0 directly** — mem0 ingestion is handled entirely by auto_digest. |
 | **auto_digest.py --today** | Runs every 15 minutes. Reads only the **new bytes** added since the last run (tracked via `auto_digest_offset.json`). Sends content to mem0 in **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) with `infer=True` — mem0 handles fact extraction and deduplication automatically. Offset is persisted after each successful batch, enabling crash-safe resume. |
 | **memory_sync.py** | Runs daily at UTC 01:00. Syncs each agent's `MEMORY.md` (curated knowledge) directly to mem0 long-term memory. Hash-based dedup skips unchanged files — zero LLM cost if nothing changed. |
-| **auto_dream.py** / **AutoDream** | Runs daily at UTC 02:00. **Step 1**: reads yesterday's complete diary → `mem0.add(infer=True, no run_id)` → long-term memory. **Step 2**: for each 7-day-old short-term memory, re-adds it to mem0 with `infer=True` (no run_id) — mem0 natively decides ADD/UPDATE/DELETE/NONE — then deletes the original short-term entry. |
+| **auto_dream.py** / **AutoDream** | Runs daily at UTC 02:00. **Step 1**: reads yesterday's complete diary → `mem0.add(infer=True, no run_id)` → long-term memory. **Step 2**: for each 7-day-old short-term memory, calls `mem0.add(infer=True, no run_id)` — mem0 LLM compares against existing long-term memories and returns a decision: `ADD` (new knowledge, write), `UPDATE` (merge with existing), `DELETE` (redundant, skip write), or `NONE` (already covered). Regardless of decision, the original short-term entry is always deleted after processing. |
 | **mem0 Memory Service** | Core service. Uses AWS Bedrock LLM for memory distillation/deduplication and Bedrock Embedding for vectorization. |
 | **Vector Store** | Persists memory vectors. Supports S3 Vectors or OpenSearch as the backend. |
 | **SKILL.md → Retrieval** | On new agent sessions, reads SKILL.md, queries mem0 for relevant memories, and injects them as context. |
@@ -102,7 +102,13 @@ This is the **fastest path**: important decisions and lessons reach long-term me
 Runs two steps each night:
 
 - **Step 1**: Reads yesterday's complete diary and writes it to mem0 with `infer=True` (no `run_id`) — directly into long-term memory with full-day context for high-quality extraction.
-- **Step 2**: For each 7-day-old short-term memory, re-adds it to mem0 with `infer=True` (no `run_id`). mem0 natively decides whether to ADD (new knowledge), UPDATE (merge with existing), DELETE (redundant), or NONE (no action). The original short-term entry is then deleted.
+- **Step 2**: For each 7-day-old short-term memory, calls `mem0.add(infer=True, no run_id)`. mem0's LLM compares the memory against existing long-term memories and returns one of four decisions:
+  - `ADD` — new knowledge → written as new long-term entry
+  - `UPDATE` — overlaps with existing → merged/updated
+  - `DELETE` — redundant or contradicted → write skipped
+  - `NONE` — already fully covered → write skipped
+
+  Regardless of the decision, the **original short-term entry is always deleted** after processing.
 
 This leverages mem0's native intelligence instead of hand-written semantic search, eliminating thousands of redundant Bedrock API calls per run.
 

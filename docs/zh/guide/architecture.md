@@ -63,7 +63,7 @@ flowchart TD
 | **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。**不直接写入 mem0**——mem0 的写入完全由 auto_digest 负责。 |
 | **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=True` 写入 mem0——mem0 自动处理事实提取和去重。每批成功后立即持久化 offset，支持断点续传。 |
 | **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于 hash 去重，文件未变化时零 LLM 调用。 |
-| **auto_dream.py** / **AutoDream** | 每天 UTC 02:00 运行。**步骤一**：读取昨日完整日记 → `mem0.add(infer=True, 无 run_id)` → 长期记忆。**步骤二**：对每条 7 天前的短期记忆，以 `infer=True`（无 run_id）重新写入 mem0——mem0 原生决策 ADD/UPDATE/DELETE/NONE——然后删除原始短期条目。 |
+| **auto_dream.py** / **AutoDream** | 每天 UTC 02:00 运行。**步骤一**：读取昨日完整日记 → `mem0.add(infer=True, 无 run_id)` → 长期记忆。**步骤二**：对每条 7 天前的短期记忆，调用 `mem0.add(infer=True, 无 run_id)`——mem0 LLM 与已有长期记忆比对，返回四种决策之一：`ADD`（新知识，写入）、`UPDATE`（与已有条目合并）、`DELETE`（冗余，跳过写入）、`NONE`（已完全覆盖，跳过写入）。无论何种决策，**原始短期条目处理后始终删除**。 |
 | **mem0 Memory Service** | 核心服务。使用 AWS Bedrock LLM 进行记忆提炼与去重，使用 Bedrock Embedding 进行向量化。 |
 | **向量存储** | 持久化记忆向量，支持 S3 Vectors 或 OpenSearch 作为后端。 |
 | **SKILL.md → 检索** | Agent 新会话启动时，读取 SKILL.md，查询 mem0 获取相关记忆，注入为上下文。 |
@@ -102,7 +102,13 @@ mem0 本身没有长短期概念——默认永久保存所有写入的内容。
 每晚执行两个步骤：
 
 - **步骤一**：读取昨日完整日记，以 `infer=True`（无 `run_id`）写入 mem0——直接进入长期记忆，利用全天完整上下文提取高质量知识。
-- **步骤二**：对每条 7 天前的短期记忆，以 `infer=True`（无 `run_id`）重新写入 mem0。mem0 原生决策是 ADD（新知识）、UPDATE（合并已有记忆）、DELETE（冗余）还是 NONE（无需操作），然后删除原始短期条目。
+- **步骤二**：对每条 7 天前的短期记忆，调用 `mem0.add(infer=True, 无 run_id)`。mem0 LLM 将该条记忆与已有长期记忆比对，返回四种决策之一：
+  - `ADD` — 新知识 → 写入新的长期记忆条目
+  - `UPDATE` — 与已有条目重叠 → 合并/更新
+  - `DELETE` — 冗余或被已有知识覆盖 → 跳过写入
+  - `NONE` — 已完全覆盖 → 跳过写入
+
+  无论何种决策，**原始短期条目处理后始终删除**。
 
 利用 mem0 原生智能，取代了之前手写的语义搜索逻辑，消除了每次运行数千次冗余的 Bedrock API 调用。
 
