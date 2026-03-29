@@ -199,6 +199,7 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
     incremental=False: 读取整个日记文件，LLM 提炼后写 mem0（昨日全量模式）
     incremental=True:  从 offset 开始分批读取（每批 50KB），逐批 POST 给 mem0，
                        批次间 sleep 避免打爆服务。处理完更新 offset，下次只读新增。
+    Batches are aligned to '## ' section boundaries to avoid cutting context mid-paragraph.
     """
     import time
 
@@ -235,12 +236,20 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
                 if not raw:
                     break
 
-                batch_content = raw.decode('utf-8', errors='replace')
+                # Align to next section boundary "\n## " to avoid cutting context mid-paragraph
+                lookahead_raw = f.read(4096)
+                cut = lookahead_raw.find(b'\n## ')
+                if cut >= 0:
+                    raw = raw + lookahead_raw[:cut + 1]
+                else:
+                    raw = raw + lookahead_raw
+
+                batch_content = raw.decode("utf-8", errors="replace")
                 next_offset = current_offset + len(raw)
                 batch_num += 1
 
                 logger.info(f"[{agent_id}] Batch {batch_num}/{total_batches}: "
-                            f"offset {current_offset} -> {next_offset} ({len(raw)} bytes)")
+                            f"offset {current_offset} -> {next_offset} ({len(raw)} bytes, section-aligned)")
 
                 if batch_content.strip():
                     ok = write_to_mem0(batch_content, date, agent_id, incremental=True)
