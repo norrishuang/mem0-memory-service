@@ -59,18 +59,31 @@ MINIMAX_BRANCH = '''\
         elif self.provider == "minimax":
             # MiniMax models use Bedrock Converse API
             # M2.5 is a reasoning model: content array may contain reasoningContent before text
-            last_content = messages[-1]["content"]
-            if not isinstance(last_content, str):
-                last_content = str(last_content)
-            formatted_messages = [{"role": "user", "content": [{"text": last_content}]}]
-            response = self.client.converse(
-                modelId=self.config.model,
-                messages=formatted_messages,
-                inferenceConfig={
+            # Build system prompt and user/assistant messages separately for Converse API
+            system_parts = []
+            converse_messages = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if not isinstance(content, str):
+                    content = str(content)
+                if role == "system":
+                    system_parts.append(content)
+                else:
+                    converse_messages.append({"role": role, "content": [{"text": content}]})
+            if not converse_messages:
+                converse_messages = [{"role": "user", "content": [{"text": ""}]}]
+            converse_params = {
+                "modelId": self.config.model,
+                "messages": converse_messages,
+                "inferenceConfig": {
                     "maxTokens": self.model_config.get("max_tokens", 2000),
                     "temperature": self.model_config.get("temperature", 0.1),
                 },
-            )
+            }
+            if system_parts:
+                converse_params["system"] = [{"text": "\\n".join(system_parts)}]
+            response = self.client.converse(**converse_params)
             # Find the first content block that has a "text" key (skip reasoningContent)
             for block in response["output"]["message"]["content"]:
                 if "text" in block:
