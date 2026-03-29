@@ -26,9 +26,11 @@ vim .env
 | `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors index name |
 | `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding model |
 | `EMBEDDING_DIMS` | `1024` | Vector dimensions |
-| `LLM_MODEL` | `us.anthropic.claude-3-5-haiku-20241022-v1:0` | LLM model |
+| `LLM_MODEL` | `minimax.minimax-m2.5` | LLM model for mem0 memory extraction / dedup (see [LLM selection guide](#llm-selection)) |
 | `LLM_TEMPERATURE` | `0.1` | LLM temperature |
 | `LLM_MAX_TOKENS` | `2000` | Max tokens |
+| `DIGEST_LLM_MODEL` | `minimax.minimax-m2.5` | LLM model for `auto_digest.py` summarization pipeline (defaults to `LLM_MODEL` if unset) |
+| `DIGEST_LLM_REGION` | same as `AWS_REGION` | AWS region override for the digest LLM |
 | `SERVICE_HOST` | `0.0.0.0` | Service bind address |
 | `SERVICE_PORT` | `8230` | Service port |
 
@@ -49,13 +51,37 @@ OPENSEARCH_COLLECTION=mem0_memories
 EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
 EMBEDDING_DIMS=1024
 
-LLM_MODEL=us.anthropic.claude-3-5-haiku-20241022-v1:0
+# LLM — mem0 memory extraction + digest pipeline
+LLM_MODEL=minimax.minimax-m2.5
+DIGEST_LLM_MODEL=minimax.minimax-m2.5
 LLM_TEMPERATURE=0.1
 LLM_MAX_TOKENS=2000
 
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8230
 ```
+
+## LLM Selection
+
+mem0 uses an LLM for two purposes:
+- **Memory extraction / dedup** (`LLM_MODEL`) — called on every `memory/add` request
+- **Digest summarization** (`DIGEST_LLM_MODEL`) — called by `auto_digest.py` to summarize diary entries
+
+Both default to `minimax.minimax-m2.5`. Here's a comparison of supported models on AWS Bedrock `us-east-1`:
+
+| Model | `LLM_MODEL` value | Avg latency | Input | Output | Notes |
+|-------|-------------------|------------|-------|--------|-------|
+| **MiniMax M2.5** ✅ | `minimax.minimax-m2.5` | ~2-3s | $0.30/1M | $1.20/1M | Default. Best cost (~3× cheaper than Haiku) |
+| Claude Haiku 4.5 | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | ~1s | $1.00/1M | $5.00/1M | Fastest; no patch required |
+| DeepSeek V3.2 | `deepseek.v3.2` | ~2-4s | $0.62/1M | $1.85/1M | No clear advantage over MiniMax |
+
+::: warning
+**MiniMax requires a patch.** Before using any `minimax.*` model, run:
+```bash
+python3 patch_minimax_support.py
+```
+See [Known Issues](./known-issues.md#pr-4609-minimax-models-not-recognized-on-aws-bedrock) for details.
+:::
 
 ## Data Isolation
 
