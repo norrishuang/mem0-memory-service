@@ -17,6 +17,9 @@ from pathlib import Path
 import boto3
 import requests
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import config as app_config
+
 # ─── Configuration ───
 
 WORKSPACE_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
@@ -25,8 +28,9 @@ OPENCLAW_CONFIG = WORKSPACE_BASE / "openclaw.json"
 LOG_FILE = Path(__file__).parent.parent / "auto_digest.log"
 OFFSET_FILE = Path(__file__).parent.parent / "auto_digest_offset.json"
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"
-BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-AWS_REGION = "us-east-1"
+# Digest LLM config — read from app_config (supports .env override)
+BEDROCK_MODEL_ID = app_config.DIGEST_LLM_MODEL
+AWS_REGION = app_config.DIGEST_LLM_REGION
 MIN_CONTENT_BYTES = 500   # 新增内容少于此值则跳过（避免无意义的小更新）
 BATCH_SIZE_BYTES = 50000  # 每批读取的字节数（50KB）
 BATCH_SLEEP_SECS = 5      # 批次间 sleep，避免打爆 mem0
@@ -137,19 +141,18 @@ def save_offsets(offsets: dict):
 # ─── Core Functions ───
 
 def call_llm_extract(content: str) -> list[str] | None:
-    """调用 Bedrock LLM 提取短期事件"""
+    """调用 Bedrock LLM 提取短期事件（使用 Converse API，兼容 MiniMax 等非 Claude 模型）"""
     try:
         bedrock = boto3.client(service_name='bedrock-runtime', region_name=AWS_REGION)
-        response = bedrock.invoke_model(
+        response = bedrock.converse(
             modelId=BEDROCK_MODEL_ID,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 2000,
+            messages=[{"role": "user", "content": [{"text": EXTRACT_PROMPT.format(content=content)}]}],
+            inferenceConfig={
+                "maxTokens": 2000,
                 "temperature": 0.3,
-                "messages": [{"role": "user", "content": EXTRACT_PROMPT.format(content=content)}]
-            })
+            }
         )
-        text = json.loads(response['body'].read())['content'][0]['text'].strip()
+        text = response["output"]["message"]["content"][0]["text"].strip()
 
         if text == "NO_EVENTS":
             logger.info("LLM returned NO_EVENTS")

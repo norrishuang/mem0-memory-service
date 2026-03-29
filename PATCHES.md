@@ -44,11 +44,23 @@ python3 patch_s3vectors_filter.py
 
 > ⚠️ `pip upgrade mem0ai` 后需重新执行 patch，直到 PR 合并为止。
 
+## Patch 4: 添加 MiniMax M2.5 模型支持 (Bedrock)
+
+- **问题**: mem0 的 `aws_bedrock` provider 的 `PROVIDERS` 列表不包含 `minimax`，导致使用 `minimax.minimax-m2.5` 时报 `ValueError: Unknown provider`；另外 MiniMax M2.5 是推理模型，响应 `content` 数组中第一个是 `reasoningContent`，不能直接取 `[0]["text"]`
+- **修复**: 在 `mem0/llms/aws_bedrock.py` 中：
+  1. `PROVIDERS` 列表加入 `"minimax"`
+  2. `_generate_standard` 方法加入 MiniMax Converse API 分支，遍历 content blocks 找第一个含 `text` 的块（跳过 reasoningContent）
+- **一键 patch**：
+  ```bash
+  python3 patch_minimax_support.py
+  ```
+
+> ⚠️ `pip install --upgrade mem0ai` 后需重新执行本脚本，直到 mem0 官方支持 MiniMax 为止。
+
 ## 检查 PR 状态
 
 ```bash
 gh pr view 4392 --repo mem0ai/mem0 --json state -q .state
-gh pr view 4393 --repo mem0ai/mem0 --json state -q .state
 gh pr view 4554 --repo mem0ai/mem0 --json state -q .state
 ```
 
