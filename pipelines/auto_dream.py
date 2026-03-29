@@ -2,14 +2,10 @@
 """
 auto_dream.py - AutoDream 记忆沉淀（夜间自动巩固）
 
-每天运行一次，处理所有 agent 7天前的短期记忆：
-1. 从 openclaw.json 发现所有 agent（与 session_snapshot / auto_digest 保持一致）
-2. 找到7天前（run_id=7天前日期）的所有短期记忆
-3. 对每条记忆，用其内容在近7天短期记忆中做语义搜索
-4. 如果有相关讨论（score > 0.75）→ 升级为长期记忆（无 run_id 写入）
-5. 如果没有相关讨论 → 直接删除
-
-Inspired by how human brains consolidate short-term into long-term memories during sleep.
+每天 UTC 02:00 运行，对每个 agent 执行两步：
+  Step 1: 读取昨日日记 → POST mem0.add(infer=True, 无 run_id) → 长期记忆
+  Step 2: 找到 7 天前的短期记忆 → 逐条 re-add 到 mem0(infer=True, 无 run_id) → 删除原始短期条目
+         mem0 原生决定 ADD/UPDATE/DELETE/NONE，不再手写语义搜索判断。
 """
 
 import json
@@ -25,14 +21,12 @@ from pathlib import Path
 
 BASE_URL = "http://127.0.0.1:8230"
 USER_ID = "boss"
-ARCHIVE_DAYS = 7        # 处理多少天前的短期记忆
-ACTIVE_THRESHOLD = 0.75  # 活跃度判断阈值（语义相似度）
-MAX_MEMORIES_PER_RUN = 300  # 单次运行每个 agent 最多处理的记忆数（分页模式，剩余留到下次）
-MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此数则跳过该 agent 剩余记忆
-INTER_MEMORY_SLEEP = 1.0    # 每条记忆处理后的 sleep（秒），防止打爆 server
+ARCHIVE_DAYS = 7
+MAX_MEMORIES_PER_RUN = 300
+MAX_CONSECUTIVE_ERRORS = 3
+INTER_MEMORY_SLEEP = 1.0
 LOG_FILE = Path(__file__).parent.parent / "auto_dream.log"
 
-# 优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
 OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 
@@ -71,19 +65,53 @@ def load_agent_ids() -> list[str]:
                         _extract(v)
 
             _extract(config)
-            logger.debug(f"Loaded {len(agent_ids)} agents from openclaw.json: {agent_ids}")
             return agent_ids
         except Exception as e:
             logger.warning(f"Failed to parse openclaw.json: {e}, falling back to directory scan")
 
-    # 兜底：扫描 workspace-* 目录
     for ws_dir in sorted(OPENCLAW_BASE.glob("workspace-*")):
         agent_ids.append(ws_dir.name.replace("workspace-", ""))
-    logger.debug(f"Fallback scan found agents: {agent_ids}")
     return agent_ids
 
 
-# ─── Core Functions ───
+def load_agent_workspaces() -> dict[str, Path]:
+    """从 openclaw.json 读取 agent_id → workspace Path 映射"""
+    mapping = {}
+
+    if OPENCLAW_CONFIG.exists():
+        try:
+            with open(OPENCLAW_CONFIG) as f:
+                config = json.load(f)
+
+            def _extract(obj):
+                if isinstance(obj, dict):
+                    if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
+                        mapping[obj['id']] = Path(obj['workspace'])
+                    for v in obj.values():
+                        _extract(v)
+                elif isinstance(obj, list):
+                    for v in obj:
+                        _extract(v)
+
+            _extract(config)
+        except Exception as e:
+            logger.warning(f"Failed to parse openclaw.json: {e}, falling back to directory scan")
+
+    if not mapping:
+        for ws_dir in sorted(OPENCLAW_BASE.glob("workspace-*")):
+            agent_id = ws_dir.name.replace("workspace-", "")
+            mapping[agent_id] = ws_dir
+
+    return mapping
+
+
+# ─── Helpers ───
+
+def get_beijing_yesterday() -> str:
+    tz_beijing = timezone(timedelta(hours=8))
+    yesterday = datetime.now(tz_beijing).date() - timedelta(days=1)
+    return yesterday.strftime("%Y-%m-%d")
+
 
 def get_short_term_memories(agent_id: str, run_id: str) -> list:
     """获取指定 agent + run_id 的所有短期记忆"""
@@ -101,62 +129,6 @@ def get_short_term_memories(agent_id: str, run_id: str) -> list:
         return []
 
 
-def is_topic_active(agent_id: str, memory_text: str, exclude_run_id: str) -> bool:
-    """判断话题是否在近7天还活跃（语义搜索近期短期记忆）"""
-    tz_beijing = timezone(timedelta(hours=8))
-    today = datetime.now(tz_beijing).date()
-
-    for i in range(1, ARCHIVE_DAYS):
-        day = today - timedelta(days=i)
-        run_id = day.strftime("%Y-%m-%d")
-        if run_id == exclude_run_id:
-            continue
-
-        payload = {
-            "query": memory_text,
-            "user_id": USER_ID,
-            "agent_id": agent_id,
-            "run_id": run_id,
-            "top_k": 3
-        }
-        try:
-            resp = requests.post(f"{BASE_URL}/memory/search", json=payload, timeout=30)
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
-            if isinstance(results, dict):
-                results = results.get("results", [])
-            for r in results:
-                if r.get("score", 0) >= ACTIVE_THRESHOLD:
-                    logger.debug(f"  [{agent_id}] Active match (score={r['score']:.2f}) in run_id={run_id}")
-                    return True
-        except Exception as e:
-            logger.debug(f"  [{agent_id}] Error searching run_id={run_id}: {e}")
-
-    return False
-
-
-def promote_to_long_term(agent_id: str, memory_text: str, original_metadata: dict):
-    """升级为长期记忆（不带 run_id）"""
-    metadata = {k: v for k, v in (original_metadata or {}).items()
-                if k not in ("category", "source", "digest_date")}
-    metadata["category"] = "experience"
-    metadata["source"] = "autodream_promoted"
-
-    payload = {
-        "user_id": USER_ID,
-        "agent_id": agent_id,
-        "text": memory_text,
-        "metadata": metadata
-    }
-    try:
-        resp = requests.post(f"{BASE_URL}/memory/add", json=payload, timeout=60)
-        resp.raise_for_status()
-        logger.info(f"  [{agent_id}] ✓ Promoted to long-term memory")
-    except Exception as e:
-        logger.error(f"  [{agent_id}] ✗ Failed to promote: {e}")
-        raise
-
-
 def delete_memory(memory_id: str):
     """删除记忆"""
     try:
@@ -167,59 +139,75 @@ def delete_memory(memory_id: str):
         raise
 
 
-def archive_agent(agent_id: str, target_run_id: str) -> tuple[int, int]:
-    """处理单个 agent 的短期记忆归档，返回 (promoted, deleted)"""
+# ─── Step 1: Digest Yesterday Diary ───
+
+def digest_yesterday(agent_id: str, workspace: Path):
+    """读取昨日日记 → POST mem0.add(infer=True, 无 run_id) → 长期记忆"""
+    yesterday = get_beijing_yesterday()
+    diary_file = workspace / "memory" / f"{yesterday}.md"
+    if not diary_file.exists():
+        logger.info(f"[{agent_id}] No diary for {yesterday}, skipping digest")
+        return
+    content = diary_file.read_text(encoding="utf-8").strip()
+    if not content:
+        logger.info(f"[{agent_id}] Empty diary for {yesterday}, skipping digest")
+        return
+    resp = requests.post(f"{BASE_URL}/memory/add", json={
+        "user_id": USER_ID,
+        "agent_id": agent_id,
+        "text": content,
+        "infer": True,
+        "metadata": {"source": "auto_dream_digest", "digest_date": yesterday}
+    }, timeout=120)
+    resp.raise_for_status()
+    logger.info(f"[{agent_id}] Digested yesterday diary ({len(content)} chars) into long-term memory")
+
+
+# ─── Step 2: Consolidate Old Short-Term Memories ───
+
+def consolidate_old_memories(agent_id: str, target_run_id: str) -> int:
+    """逐条 re-add 7天前短期记忆到长期(infer=True, 无 run_id)，然后删除原始条目"""
     memories = get_short_term_memories(agent_id, target_run_id)
     if not memories:
-        logger.info(f"[{agent_id}] No short-term memories for {target_run_id}, skipping")
-        return 0, 0
+        logger.info(f"[{agent_id}] No short-term memories for {target_run_id}")
+        return 0
 
-    logger.info(f"[{agent_id}] Found {len(memories)} memories to process")
-
-    if len(memories) > MAX_MEMORIES_PER_RUN:
-        logger.warning(
-            f"[{agent_id}] Too many memories ({len(memories)}), "
-            f"processing first {MAX_MEMORIES_PER_RUN} this run (remainder will be processed in future runs)"
-        )
-        memories = memories[:MAX_MEMORIES_PER_RUN]
-
-    promoted = 0
-    deleted = 0
+    processed = 0
     consecutive_errors = 0
+    cap = min(len(memories), MAX_MEMORIES_PER_RUN)
+    if len(memories) > MAX_MEMORIES_PER_RUN:
+        logger.warning(f"[{agent_id}] {len(memories)} memories, processing first {cap} (paging)")
 
-    for mem in memories:
+    for mem in memories[:cap]:
         mem_id = mem.get("id")
         mem_text = mem.get("memory", "")
-        mem_metadata = mem.get("metadata", {})
-
-        if not mem_text or not mem_id:
-            logger.warning(f"[{agent_id}] Skipping memory with missing id or text: {mem}")
+        if not mem_id or not mem_text:
             continue
-
-        logger.info(f"[{agent_id}] Processing: {mem_text[:60]}...")
-
         try:
-            if is_topic_active(agent_id, mem_text, target_run_id):
-                logger.info(f"[{agent_id}]   → Active topic, promoting to long-term")
-                promote_to_long_term(agent_id, mem_text, mem_metadata)
-                delete_memory(mem_id)
-                promoted += 1
-            else:
-                logger.info(f"[{agent_id}]   → Inactive topic, deleting")
-                delete_memory(mem_id)
-                deleted += 1
+            resp = requests.post(f"{BASE_URL}/memory/add", json={
+                "user_id": USER_ID,
+                "agent_id": agent_id,
+                "text": mem_text,
+                "infer": True,
+                "metadata": {"source": "auto_dream_consolidated", "original_run_id": target_run_id}
+            }, timeout=120)
+            resp.raise_for_status()
+            delete_memory(mem_id)
+            processed += 1
             consecutive_errors = 0
+            logger.info(f"[{agent_id}] Consolidated: {mem_text[:60]}...")
         except Exception as e:
             consecutive_errors += 1
-            logger.error(f"[{agent_id}]   → Error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}")
+            logger.error(f"[{agent_id}] Error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}")
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                logger.error(f"[{agent_id}] {MAX_CONSECUTIVE_ERRORS} consecutive errors, aborting remaining memories")
+                logger.error(f"[{agent_id}] Aborting after {MAX_CONSECUTIVE_ERRORS} consecutive errors")
                 break
-
         time.sleep(INTER_MEMORY_SLEEP)
 
-    return promoted, deleted
+    return processed
 
+
+# ─── Main ───
 
 def main():
     logger.info("=" * 80)
@@ -231,26 +219,23 @@ def main():
     target_run_id = target_date.strftime("%Y-%m-%d")
 
     logger.info(f"Beijing date: {today}")
-    logger.info(f"Archiving short-term memories for run_id={target_run_id}")
+    logger.info(f"Target run_id for consolidation: {target_run_id}")
 
-    agent_ids = load_agent_ids()
-    logger.info(f"Discovered {len(agent_ids)} agents: {agent_ids}")
+    workspaces = load_agent_workspaces()
+    logger.info(f"Discovered {len(workspaces)} agents: {list(workspaces.keys())}")
 
-    total_promoted = 0
-    total_deleted = 0
+    total_consolidated = 0
 
-    for agent_id in agent_ids:
+    for agent_id, workspace in sorted(workspaces.items()):
         try:
-            promoted, deleted = archive_agent(agent_id, target_run_id)
-            total_promoted += promoted
-            total_deleted += deleted
+            # Step 1: digest yesterday diary → long-term memory
+            digest_yesterday(agent_id, workspace)
+            # Step 2: consolidate 7-day-old short-term → long-term, then delete
+            total_consolidated += consolidate_old_memories(agent_id, target_run_id)
         except Exception as e:
             logger.error(f"[{agent_id}] Fatal error: {e}", exc_info=True)
 
-    logger.info(f"\nAutoDream complete (all agents):")
-    logger.info(f"  - Promoted to long-term: {total_promoted}")
-    logger.info(f"  - Deleted as inactive:   {total_deleted}")
-    logger.info(f"  - Total processed:       {total_promoted + total_deleted}")
+    logger.info(f"\nAutoDream complete: consolidated {total_consolidated} memories")
     logger.info("=" * 80)
 
 

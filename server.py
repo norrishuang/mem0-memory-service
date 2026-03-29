@@ -147,6 +147,7 @@ class AddMemoryRequest(BaseModel):
     agent_id: Optional[str] = Field(None, description="Agent identifier (e.g. 'dev', 'main')")
     run_id: Optional[str] = Field(None, description="Run/session identifier (e.g. YYYY-MM-DD for short-term memories)")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Extra metadata tags")
+    infer: bool = Field(True, description="Whether mem0 should infer/extract facts (True) or store raw text (False)")
 
 
 class SearchMemoryRequest(BaseModel):
@@ -208,13 +209,14 @@ async def add_memory(req: AddMemoryRequest):
     async with _add_semaphore:
         try:
             loop = asyncio.get_event_loop()
+            infer = req.infer  # capture for lambda to avoid late binding
             if req.messages:
                 result = await loop.run_in_executor(
-                    _mem0_executor, lambda: memory.add(req.messages, **kwargs)
+                    _mem0_executor, lambda: memory.add(req.messages, infer=infer, **kwargs)
                 )
             else:
                 result = await loop.run_in_executor(
-                    _mem0_executor, lambda: memory.add(req.text, **kwargs)
+                    _mem0_executor, lambda: memory.add(req.text, infer=infer, **kwargs)
                 )
             return {"status": "ok", "result": result}
         except Exception as e:

@@ -172,14 +172,13 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
             "digest_date": run_id,
             "workspace_agent": agent_id
         }
-        if incremental:
-            metadata["mode"] = "direct"  # 直接写，不经过本地 LLM
 
         resp = requests.post(MEM0_API_URL, json={
             "user_id": "boss",
             "agent_id": agent_id,
             "run_id": run_id,
             "text": event,
+            "infer": True,
             "metadata": metadata
         }, timeout=30)
         resp.raise_for_status()

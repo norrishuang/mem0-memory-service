@@ -104,9 +104,10 @@ On every heartbeat tick, the agent performs memory maintenance in order:
                              │
                    ┌─────────┴──────────┐
                    ▼                    ▼
-             Promoted to           Deleted
-             long-term             (inactive)
-             memory
+             Step 1: digest        Step 2: consolidate
+             yesterday diary       7-day-old short-term
+             → long-term           → re-add long-term
+             (infer=True)          (infer=True) + delete
 ```
 
 ## Daily Automation Timeline
@@ -116,23 +117,23 @@ All automation runs as systemd user timers:
 | Time (UTC) | Script | What it does |
 |-----------|--------|--------------|
 | Every 5 min | `pipelines/session_snapshot.py` | Capture session conversations → diary file |
-| Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → write directly to mem0 short-term (today, no LLM) |
+| Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=True, mem0 handles dedup) |
 | 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
 | 01:30 | `pipelines/auto_digest.py` | Full mode: LLM-extract yesterday's complete diary → mem0 short-term |
-| 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Evaluate 7-day-old short-term → promote or delete |
+| 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Step 1: yesterday diary → mem0 long-term (infer=True); Step 2: 7-day-old short-term → re-add to long-term (infer=True) then delete |
 
 ## Two Modes of auto_digest
 
 `auto_digest.py` runs in two different modes:
 
 **`--today` mode (every 15 min, incremental)**
-Picks up new content from today's diary since the last run (offset-based). Writes directly to mem0 short-term memory without a local LLM call — mem0 handles fact extraction internally. Skips batches smaller than 500 bytes to avoid noisy micro-writes. On failure, retains the offset so the next run resumes from the same point.
+Picks up new content from today's diary since the last run (offset-based). Writes to mem0 short-term memory with `infer=True` — mem0 handles fact extraction and deduplication automatically. Skips batches smaller than 500 bytes to avoid noisy micro-writes. On failure, retains the offset so the next run resumes from the same point.
 
 **Default mode (UTC 01:30, full)**
 Reads yesterday's complete diary, calls a local Bedrock LLM (Claude Haiku) to extract meaningful short-term events, and writes each event individually to mem0. Higher quality output than incremental mode; acts as a cleanup pass to catch anything the 15-min incremental runs may have missed.
 
 ```
-Every 15 min (--today):  diary new content → direct POST to mem0 (no LLM)
+Every 15 min (--today):  diary new content → POST to mem0 (infer=True, mem0 dedup)
 UTC 01:30 (default):     yesterday's full diary → LLM extract → mem0
 ```
 
@@ -149,7 +150,7 @@ When a session's context window grows too large, OpenClaw compresses (compacts) 
 **Tertiary: Near-real-time cross-session memory sharing**
 Each agent may have multiple concurrent sessions — a direct chat session and one or more group chat sessions. Without a sharing mechanism, what an agent says in a group chat is invisible to its direct chat session (and vice versa).
 
-`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it directly to mem0 short-term memory (run_id=today, no local LLM). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
+`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it to mem0 short-term memory with `infer=True` (run_id=today, mem0 handles dedup). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
 
 Session keys are tagged in metadata (`session_key`), so you can filter by source if needed.
 
@@ -219,7 +220,7 @@ If the new session starts before 01:30, mem0 doesn't have last night's content y
 | Yesterday after-midnight to 01:30 | `memory/yesterday.md` (gap buffer) |
 | Yesterday 01:30 onward | mem0 short-term (distilled) |
 | Last 7 days | mem0 short-term (`--combined`) |
-| Older than 7 days | mem0 long-term (AutoDream-promoted) |
+| Older than 7 days | mem0 long-term (AutoDream-consolidated) |
 
 All three sources together — today's diary + yesterday's diary + mem0 — create **zero blind spots** across all session reset scenarios.
 
