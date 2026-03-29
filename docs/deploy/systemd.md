@@ -28,7 +28,7 @@ systemctl --user enable --now mem0-snapshot.timer
 
 ### Auto Digest (every 15 minutes)
 
-Extracts short-term events from diary files and stores them in mem0 with `run_id=YYYY-MM-DD`.
+Extracts short-term events from diary files and stores them in mem0 with `infer=True` (`run_id=YYYY-MM-DD`). mem0 automatically handles fact extraction and deduplication.
 
 ```bash
 # Using cron
@@ -37,7 +37,9 @@ Extracts short-term events from diary files and stores them in mem0 with `run_id
 
 ### AutoDream (daily at UTC 02:00)
 
-Processes short-term memories older than 7 days — active topics are upgraded to long-term, inactive ones are deleted.
+Runs nightly consolidation in two steps:
+- **Step 1**: Reads yesterday diary → `mem0.add(infer=True, no run_id)` → long-term memory
+- **Step 2**: For each 7-day-old short-term memory, calls `mem0.add(infer=True, no run_id)` — mem0 decides ADD/UPDATE/DELETE/NONE — then deletes the original entry
 
 ```bash
 sudo cp mem0-dream.service /etc/systemd/system/
@@ -69,4 +71,4 @@ journalctl -u mem0-dream.service -f
 |------|-----------|--------|---------|
 | `pipelines/session_snapshot.py` | Every 5 min | systemd user timer | Save session conversations to diary |
 | `pipelines/auto_digest.py` | Every 15 min | cron | Extract short-term memories from diary |
-| `pipelines/auto_dream.py` | Daily 02:00 UTC | systemd system timer | **AutoDream**: Archive/delete old short-term memories |
+| `pipelines/auto_dream.py` | Daily 02:00 UTC | systemd system timer | **AutoDream**: Diary→long-term + short-term cleanup via mem0 native inference |

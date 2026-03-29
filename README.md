@@ -14,13 +14,13 @@ Agents can automatically store and retrieve memories through conversations, with
 
 - **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (agent1 / agent2 / agent3, etc.), each with a fully isolated memory space. Agents are auto-discovered from `openclaw.json` — no manual registration required. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base that benefits the whole team.
 
-- **Short-Term + Long-Term Tiered Storage** — Conversations are captured as diary files and distilled into short-term memory daily. Agent-curated `MEMORY.md` files are synced directly to long-term memory. The pipeline: live session → diary snapshot → daily LLM extraction → vector memory.
+- **Short-Term + Long-Term Tiered Storage** — Conversations are captured as diary files and distilled into short-term memory every 15 minutes via `auto_digest --today`. Agent-curated `MEMORY.md` files are synced directly to long-term memory. Nightly `auto_dream` consolidates short-term into long-term via mem0's native inference. The pipeline: live session → diary snapshot → incremental digest → nightly dream → vector memory.
 
 - **Cost-Optimized Operations** — Daily digest (once per day) vs. the previous incremental approach (every 15 minutes) reduces LLM calls by ~96% while improving memory quality. `MEMORY.md` sync uses hash-based dedup — zero LLM cost if content hasn't changed.
 
 - **Cost-Optimized Vector Storage (S3 Vectors)** — Supports Amazon S3 Vectors as a vector backend, offering dramatically lower cost than self-managed OpenSearch clusters with pay-per-use pricing. OpenSearch is also supported for existing-cluster scenarios.
 
-- **Fully Automated Operations** — systemd timers handle the entire lifecycle: session snapshots every 5 minutes, MEMORY.md sync at UTC 01:00, diary digest at UTC 01:30, short-term memory archival at UTC 02:00. Zero manual intervention; services auto-recover on restart.
+- **Fully Automated Operations** — systemd timers handle the entire lifecycle: session snapshots every 5 minutes, MEMORY.md sync at UTC 01:00, incremental digest every 15 minutes, nightly dream consolidation at UTC 02:00. Zero manual intervention; services auto-recover on restart.
 
 ## Design Philosophy
 
@@ -34,14 +34,14 @@ This service adds a **memory lifecycle management** layer on top of mem0, with t
 
 ```
 mem0 handles: Semantic extraction, intelligent deduplication, vector retrieval
-This service handles: Tiered storage, lifecycle management, activity-based archiving
+This service handles: Tiered storage, lifecycle management, nightly consolidation
 ```
 
 ### Core Design of Short/Long-Term Tiering
 
 **Short-term memory** is implemented using mem0's native `run_id` (daily isolation) mechanism, naturally isolated from long-term memory without requiring additional TTL fields.
 
-**Archival decisions** leverage mem0's semantic search capability to determine whether to upgrade: after 7 days, the short-term memory content is used for semantic search in recent memories — if the topic is still active (has related discussions), it indicates sustained value and gets upgraded to long-term memory; otherwise it is deleted. This is smarter than simple time-based hard deletion and won't accidentally remove topics that are still ongoing.
+**Archival decisions** are handled by mem0 natively. Each 7-day-old short-term memory is re-added to mem0 with `infer=True` — mem0's LLM compares against existing long-term memories and decides ADD/UPDATE/DELETE/NONE. The original short-term entry is always deleted after processing.
 
 This approach fully leverages mem0's semantic capabilities while solving the lifecycle management problem that mem0 doesn't natively address.
 
@@ -58,8 +58,8 @@ OpenClaw Agents (agent1, agent2, ...)
 │                      │  ┌─────────────────────────┐
 │  Tiered Memory:      │  │ Long-term (no run_id)   │
 │  - Long: tech        │  │ Short-term (run_id=date) │
-│    decisions,        │  │ Archive: activity-based  │
-│    lessons, prefs    │  │ upgrade/delete           │
+│    decisions,        │  │ Archive: mem0 native     │
+│    lessons, prefs    │  │ ADD/UPDATE/DELETE/NONE    │
 │  - Short: daily      │  └─────────────────────────┘
 │    discussions,      │
 │    temp decisions    │
@@ -90,7 +90,7 @@ OpenClaw Agents (agent1, agent2, ...)
 **Short-term memory** (with run_id)
 - Daily discussions, temporary decisions, task progress
 - `run_id=YYYY-MM-DD`
-- Auto-archived after 7 days: active topics upgraded to long-term, inactive ones deleted
+- Auto-archived after 7 days: mem0 natively decides ADD/UPDATE/DELETE/NONE; original short-term entry always deleted regardless
 - Usage: pass `run_id=<date>` parameter
 
 **Retrieval strategies**
@@ -235,14 +235,12 @@ Send the following prompt to your AI assistant to auto-deploy:
 > cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
 > cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
 > cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-> cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
 > systemctl --user daemon-reload
 > systemctl --user enable --now mem0-snapshot.timer
 > systemctl --user enable --now mem0-memory-sync.timer
 > systemctl --user enable --now mem0-auto-digest.timer
-> systemctl --user enable --now mem0-archive.timer
 > ```
-> Timer schedule: snapshot every 5 min → memory-sync UTC 01:00 → auto-digest UTC 01:30 → archive UTC 02:00
+> Timer schedule: snapshot every 5 min → digest every 15 min → memory-sync UTC 01:00 → auto-dream UTC 02:00
 >
 > **Step 7: Test write and search**
 > ```bash
@@ -304,10 +302,10 @@ python3 cli.py search --user me --agent agent1 --query "keywords" \
   --combined --recent-days 7
 ```
 
-**Auto-archival mechanism** (runs daily):
+**Auto-archival mechanism** (runs daily at UTC 02:00 via `auto_dream.py`):
 - Short-term memories older than 7 days are automatically processed
-- Active topics (recent related discussions) → upgraded to long-term memory
-- Inactive topics → deleted
+- Each entry is re-added to mem0 with `infer=True` (no run_id) — mem0 decides ADD/UPDATE/DELETE/NONE
+- Original short-term entry is always deleted after processing
 
 **Use cases:**
 - Daily discussion records
@@ -318,15 +316,15 @@ python3 cli.py search --user me --agent agent1 --query "keywords" \
 
 ### Automatic Short-Term Memory Extraction
 
-The `auto_digest.py` script runs once daily at UTC 01:30, processes **yesterday's complete diary**, and stores extracted events in mem0 as short-term memory.
+The `auto_digest.py` script runs every 15 minutes with `--today` mode, extracting short-term events from today's diary and storing them in mem0 with `infer=True` (mem0 handles deduplication automatically).
 
 #### How It Works
 
-1. **Read yesterday's complete diary**: Reads yesterday's full `YYYY-MM-DD.md` from each agent's workspace. Workspace paths are automatically resolved from `openclaw.json`.
-2. **LLM extraction**: Calls AWS Bedrock Claude Haiku 4.5 to extract key short-term events (discussions, task progress, temporary decisions, etc.) from the full day's diary in one pass.
-3. **Write to mem0**: Each event stored individually, `run_id=yesterday's date`, metadata `category=short_term, source=auto_digest`
+1. **Read today's diary**: Reads today's `YYYY-MM-DD.md` from each agent's workspace. Workspace paths are automatically resolved from `openclaw.json`.
+2. **Write to mem0 with infer=True**: Each diary entry is stored via `mem0.add(infer=True)` with `run_id=today's date`. mem0's LLM automatically extracts key facts and handles deduplication.
+3. **Metadata**: `category=short_term, source=auto_digest`
 
-> No `.digest_state.json` state file needed. Full-day processing in a single LLM call — 96% fewer calls vs. the previous 15-minute incremental approach.
+> No `.digest_state.json` state file needed. Uses `infer=True` so mem0 handles fact extraction and deduplication natively.
 
 #### Configure Scheduled Task (systemd timer)
 
@@ -415,70 +413,50 @@ MEM0_API_URL = "http://127.0.0.1:8230/memory/add"                   # mem0 API U
 BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"    # LLM model
 ```
 
-### Automatic Short-Term Memory Archival
+### AutoDream — Nightly Memory Consolidation
 
-The `archive.py` script runs daily to process short-term memories older than 7 days, determining whether to upgrade or delete based on activity level.
+The `auto_dream.py` script runs daily at UTC 02:00, consolidating short-term memories into long-term via mem0's native inference.
 
 #### How It Works
 
-1. **Find short-term memories from 7 days ago**: Query all memories with `run_id=date from 7 days ago`
-2. **Activity assessment**: For each memory, perform semantic search in recent 7 days of short-term memories
-3. **Upgrade or delete**:
-   - Active topics (similarity > 0.75) → upgraded to long-term memory (no run_id)
-   - Inactive topics → deleted
+1. **Step 1 — Diary → Long-term memory**: Reads yesterday's complete diary and calls `mem0.add(infer=True)` without `run_id` — mem0's LLM extracts key facts and stores them directly as long-term memory.
+2. **Step 2 — Short-term cleanup**: For each 7-day-old short-term memory, calls `mem0.add(infer=True)` without `run_id` — mem0's LLM compares against existing long-term memories and decides ADD/UPDATE/DELETE/NONE. The original short-term entry is always deleted after processing, regardless of the decision.
 
 #### Configure Scheduled Task (systemd timer)
 
 ```bash
 # Install systemd timer (runs daily at UTC 02:00)
-sudo cp mem0-archive.service /etc/systemd/system/
-sudo cp mem0-archive.timer /etc/systemd/system/
+sudo cp mem0-dream.service /etc/systemd/system/
+sudo cp mem0-dream.timer /etc/systemd/system/
 
-# Edit service file to verify paths are correct
-sudo vim /etc/systemd/system/mem0-archive.service
-
-# Enable and start timer
 sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-archive.timer
+sudo systemctl enable --now mem0-dream.timer
 
 # Check timer status
-sudo systemctl status mem0-archive.timer
-sudo systemctl list-timers mem0-archive.timer
+sudo systemctl status mem0-dream.timer
+sudo systemctl list-timers mem0-dream.timer
 
-# Manually trigger archival once
-sudo systemctl start mem0-archive.service
+# Manually trigger once
+sudo systemctl start mem0-dream.service
 
 # View logs
-tail -f archive.log
-journalctl -u mem0-archive.service -f
+journalctl -u mem0-dream.service -f
 ```
 
 #### Manual Run and Testing
 
 ```bash
-# Run manually once
 cd /home/ec2-user/workspace/mem0-memory-service
-python3 archive.py
+python3 auto_dream.py
 
 # View logs
-tail -f archive.log
+tail -f auto_dream.log
 ```
 
 #### File Descriptions
 
-- **`archive.py`**: Main archival script
-- **`archive.log`**: Archival log, append mode (git ignored)
-- **`mem0-archive.service`**: systemd service unit
-- **`mem0-archive.timer`**: systemd timer unit
-
-#### Custom Configuration
-
-To modify configuration, edit the following variables in `archive.py`:
-
-```python
-ARCHIVE_DAYS = 7        # Process short-term memories older than this many days
-ACTIVE_THRESHOLD = 0.75  # Activity threshold (semantic similarity)
-```
+- **`auto_dream.py`**: Main script
+- **`auto_dream.log`**: Runtime log, append mode (git ignored)
 
 ### HTTP API
 
@@ -699,9 +677,9 @@ mem0-memory-service/
 │   └── SKILL.md            # OpenClaw Skill definition
 ├── migrate_memory_md.py    # MEMORY.md migration tool
 ├── test_connection.py      # Connectivity test
-├── auto_digest.py          # Auto-extract short-term memories from diary (daily, yesterday full diary)
+├── auto_digest.py          # Auto-extract short-term memories from diary (every 15 min, --today incremental mode only; daily full mode superseded by auto_dream Step 1)
 ├── session_snapshot.py     # Real-time session conversation saving (every 5 min)
-├── archive.py              # Short-term memory auto-archival (daily)
+├── auto_dream.py           # Nightly memory consolidation: diary→long-term + short-term cleanup (daily UTC 02:00)
 ├── systemd/
 │   ├── mem0-snapshot.service   # systemd service
 │   ├── mem0-snapshot.timer     # systemd timer (every 5 min)
