@@ -26,9 +26,9 @@ features:
   - icon: 💰
     title: 低成本向量存储（S3 Vectors）
     details: 支持 Amazon S3 Vectors 作为向量后端，按实际用量付费，成本极低。同时也支持 OpenSearch。
-  - icon: ⚡
-    title: 实时捕获
-    details: "每次对话都被持续快照并在数分钟内提炼。Session 之间不会丢失任何内容。"
+  - icon: 🌊
+    title: MemoryStream 记忆流
+    details: "对话持续流入 mem0——每 5 分钟快照，每 15 分钟提炼。Session 之间，上下文永不丢失。"
   - icon: 🔌
     title: 一次启用，全 Agent 生效
     details: 启用 mem0-memory Skill，所有 Agent 自动继承完整记忆行为（写日记、维护 MEMORY.md、检索上下文）。无需修改任何 AGENTS.md。

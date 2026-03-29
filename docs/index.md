@@ -23,9 +23,9 @@ features:
   - icon: 🗄️
     title: Flexible Vector Store
     details: Supports OpenSearch (default) and AWS S3 Vectors — switch with a single environment variable
-  - icon: ⚡
-    title: Real-time Capture
-    details: "Every conversation is continuously snapshotted and distilled within minutes. Nothing is lost between sessions."
+  - icon: 🌊
+    title: MemoryStream
+    details: "Conversations flow into mem0 continuously — snapshotted every 5 min, digested every 15 min. No context is lost between sessions."
   - icon: 🤖
     title: Multi-Agent Support
     details: Isolated memory spaces per agent, with cross-agent search capability. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base.
