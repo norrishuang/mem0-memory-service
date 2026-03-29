@@ -41,9 +41,14 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
 EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "1024"))
 
 # LLM (for mem0 memory extraction / dedup / conflict resolution)
-LLM_MODEL = os.getenv("LLM_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+LLM_MODEL = os.getenv("LLM_MODEL", "minimax.minimax-m2.5")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2000"))
+
+# LLM for digest/summary (auto_digest.py pipeline)
+# Independent from mem0's internal LLM, used exclusively by the digest/summary scripts
+DIGEST_LLM_MODEL = os.getenv("DIGEST_LLM_MODEL", "minimax.minimax-m2.5")
+DIGEST_LLM_REGION = os.getenv("DIGEST_LLM_REGION", AWS_REGION)
 
 # Service
 SERVICE_HOST = os.getenv("SERVICE_HOST", "0.0.0.0")
