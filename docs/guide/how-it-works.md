@@ -84,27 +84,29 @@ On every heartbeat tick, the agent performs memory maintenance in order:
                   memory/YYYY-MM-DD.md
                   (raw daily diary file)
                             │
-              ┌─────────────┼──────────────┐
-              │             │              │
-              ▼             ▼              ▼
-         Heartbeat      UTC 01:30      UTC 01:00
-         (agent        auto_digest    memory_sync
-          self-        (LLM extract   (sync
-          distills)     yesterday)     MEMORY.md)
-              │             │              │
-              ▼             ▼              ▼
-         MEMORY.md     mem0 short-    mem0 long-
-         (updated)     term memory    term memory
-                       (run_id=date)  (no run_id)
-                            │
-                       UTC 02:00
-                       AutoDream
-                            │
-                  ┌─────────┴──────────┐
-                  ▼                    ▼
-            Promoted to           Deleted
-            long-term             (inactive)
-            memory
+              ┌─────────────┼──────────────┬──────────────┐
+              │             │              │              │
+              ▼             ▼              ▼              ▼
+         Heartbeat      Every 15min    UTC 01:30      UTC 01:00
+         (agent         auto_digest    auto_digest    memory_sync
+          self-         --today        (full mode,    (sync
+          distills)     (incremental,  LLM extract    MEMORY.md)
+                        direct write)  yesterday)
+              │             │              │              │
+              ▼             ▼              ▼              ▼
+         MEMORY.md     mem0 short-    mem0 short-    mem0 long-
+         (updated)     term memory    term memory    term memory
+                       (today,        (yesterday,    (no run_id)
+                        ~20min lag)    next day)
+                             │
+                        UTC 02:00
+                        AutoDream
+                             │
+                   ┌─────────┴──────────┐
+                   ▼                    ▼
+             Promoted to           Deleted
+             long-term             (inactive)
+             memory
 ```
 
 ## Daily Automation Timeline
@@ -114,9 +116,25 @@ All automation runs as systemd user timers:
 | Time (UTC) | Script | What it does |
 |-----------|--------|--------------|
 | Every 5 min | `pipelines/session_snapshot.py` | Capture session conversations → diary file |
+| Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → write directly to mem0 short-term (today, no LLM) |
 | 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
-| 01:30 | `pipelines/auto_digest.py` | Extract yesterday's complete diary → mem0 short-term |
+| 01:30 | `pipelines/auto_digest.py` | Full mode: LLM-extract yesterday's complete diary → mem0 short-term |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Evaluate 7-day-old short-term → promote or delete |
+
+## Two Modes of auto_digest
+
+`auto_digest.py` runs in two different modes:
+
+**`--today` mode (every 15 min, incremental)**
+Picks up new content from today's diary since the last run (offset-based). Writes directly to mem0 short-term memory without a local LLM call — mem0 handles fact extraction internally. Skips batches smaller than 500 bytes to avoid noisy micro-writes. On failure, retains the offset so the next run resumes from the same point.
+
+**Default mode (UTC 01:30, full)**
+Reads yesterday's complete diary, calls a local Bedrock LLM (Claude Haiku) to extract meaningful short-term events, and writes each event individually to mem0. Higher quality output than incremental mode; acts as a cleanup pass to catch anything the 15-min incremental runs may have missed.
+
+```
+Every 15 min (--today):  diary new content → direct POST to mem0 (no LLM)
+UTC 01:30 (default):     yesterday's full diary → LLM extract → mem0
+```
 
 ## Two Roles of session_snapshot
 
@@ -128,10 +146,10 @@ Agents reset daily. Without snapshot, conversations would be lost between sessio
 **Secondary: Compaction Guard**
 When a session's context window grows too large, OpenClaw compresses (compacts) the history. The most recent few minutes of conversation might not survive compaction. Snapshot running every 5 minutes ensures that content is captured to disk before compaction can lose it.
 
-**Tertiary: Real-time cross-session memory sharing**
+**Tertiary: Near-real-time cross-session memory sharing**
 Each agent may have multiple concurrent sessions — a direct chat session and one or more group chat sessions. Without a sharing mechanism, what an agent says in a group chat is invisible to its direct chat session (and vice versa).
 
-When snapshot detects new content, it writes directly to mem0 short-term memory (run_id=today). Any other session of the same agent can search mem0 and retrieve that content within 5 minutes — no session restart required.
+`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it directly to mem0 short-term memory (run_id=today, no local LLM). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
 
 Session keys are tagged in metadata (`session_key`), so you can filter by source if needed.
 
