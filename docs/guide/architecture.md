@@ -1,6 +1,6 @@
 # Architecture
 
-The mem0 Memory Service acts as the central memory layer for all OpenClaw agents. It receives session data through a pipeline (snapshot → digest → archive), distills it into semantic memories using AWS Bedrock, and serves relevant context back to agents on demand.
+The mem0 Memory Service acts as the central memory layer for all OpenClaw agents. It receives session data through a pipeline (snapshot → digest → dream), distills it into semantic memories using AWS Bedrock, and serves relevant context back to agents on demand.
 
 ```mermaid
 flowchart TD
@@ -15,9 +15,8 @@ flowchart TD
     MemoryMD["MEMORY.md\n(agent curated knowledge)"]
     Snap(["session_snapshot.py\n(every 5 min, diary only)"])
     DigestToday(["auto_digest.py --today\n(every 15 min, infer=True, mem0 dedup)"])
-    DigestFull(["auto_digest.py\n(daily UTC 01:30, yesterday full)"])
-    Sync(["memory_sync.py\n(daily, MEMORY.md)"])
-    Archive(["auto_dream.py\n(AutoDream)"])
+    Sync(["memory_sync.py\n(daily UTC 01:00, MEMORY.md)"])
+    Archive(["auto_dream.py\n(AutoDream, UTC 02:00)"])
 
     subgraph Mem0["mem0 Memory Service"]
         LLM(["AWS Bedrock LLM\n(distill / deduplicate)"])
@@ -25,7 +24,6 @@ flowchart TD
         STM["Short-term Memory\n(run_id = date)"]
         LTM["Long-term Memory\n(no run_id)"]
     end
-
 
     subgraph Store["Vector Store"]
         S3[("S3 Vectors")]
@@ -39,11 +37,9 @@ flowchart TD
     Agents -- "active write\n(no run_id)" --> LTM
     Agents -- "actively maintain" --> MemoryMD
     Snap --> Diary
-    Diary -- "every 15 min\n(50KB batches, direct write)" --> DigestToday
-    Diary -- "daily UTC 01:30\n(yesterday full diary, LLM distill)" --> DigestFull
+    Diary -- "every 15 min\n(50KB batches, infer=True)" --> DigestToday
     MemoryMD -- "daily UTC 01:00\n(hash dedup)" --> Sync
     DigestToday --> STM
-    DigestFull --> STM
     Sync --> LTM
     STM -- "daily UTC 02:00\n(7-day-old entries)" --> Archive
     Archive -- "Step 1: yesterday diary\n(infer=True)" --> LTM
@@ -66,9 +62,8 @@ flowchart TD
 |---|---|
 | **session_snapshot.py** | Runs every 5 minutes. Captures **all** agent sessions (direct chat + group chats) into daily diary files. **Does not write to mem0 directly** — mem0 ingestion is handled entirely by auto_digest. |
 | **auto_digest.py --today** | Runs every 15 minutes. Reads only the **new bytes** added since the last run (tracked via `auto_digest_offset.json`). Sends content to mem0 in **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) with `infer=True` — mem0 handles fact extraction and deduplication automatically. Offset is persisted after each successful batch, enabling crash-safe resume. |
-| **auto_digest.py** (daily) | Runs daily at UTC 01:30. Processes **yesterday's complete diary** in one pass using LLM distillation — higher quality extraction with full-day context. Writes to mem0 as short-term memories (`run_id=date`). |
 | **memory_sync.py** | Runs daily at UTC 01:00. Syncs each agent's `MEMORY.md` (curated knowledge) directly to mem0 long-term memory. Hash-based dedup skips unchanged files — zero LLM cost if nothing changed. |
-| **auto_dream.py** / **AutoDream** | Runs daily at UTC 02:00. **Step 1**: digests yesterday's diary into long-term memory (infer=True, no run_id). **Step 2**: for each 7-day-old short-term memory, re-adds it to mem0 with infer=True (no run_id) — mem0 natively decides ADD/UPDATE/DELETE/NONE — then deletes the original short-term entry. |
+| **auto_dream.py** / **AutoDream** | Runs daily at UTC 02:00. **Step 1**: reads yesterday's complete diary → `mem0.add(infer=True, no run_id)` → long-term memory. **Step 2**: for each 7-day-old short-term memory, re-adds it to mem0 with `infer=True` (no run_id) — mem0 natively decides ADD/UPDATE/DELETE/NONE — then deletes the original short-term entry. |
 | **mem0 Memory Service** | Core service. Uses AWS Bedrock LLM for memory distillation/deduplication and Bedrock Embedding for vectorization. |
 | **Vector Store** | Persists memory vectors. Supports S3 Vectors or OpenSearch as the backend. |
 | **SKILL.md → Retrieval** | On new agent sessions, reads SKILL.md, queries mem0 for relevant memories, and injects them as context. |
@@ -76,11 +71,11 @@ flowchart TD
 ## Pipeline Timeline (UTC)
 
 ```
-Every 5 min   session_snapshot  — conversations → diary files  (no mem0 write)
-Every 15 min  auto_digest --today — diary new bytes → mem0 short-term  (real-time, batched)
-01:00         memory_sync       — MEMORY.md → mem0 long-term  (curated knowledge, instant)
-01:30         auto_digest       — yesterday's diary → mem0 short-term  (full-day LLM distill)
-02:00         auto_dream (AutoDream)           — Step1: yesterday diary → long-term (infer=True); Step2: 7-day-old short-term → re-add (infer=True) + delete
+Every 5 min   session_snapshot    — conversations → diary files  (no mem0 write)
+Every 15 min  auto_digest --today — diary new bytes → mem0 short-term  (infer=True, mem0 dedup)
+01:00         memory_sync         — MEMORY.md → mem0 long-term  (curated knowledge, instant)
+02:00         auto_dream          — Step1: yesterday diary → long-term (infer=True)
+                                    Step2: 7-day-old short-term → re-add (infer=True) + delete
 ```
 
 ## Memory Tiering: Who Decides Long vs. Short-Term?
@@ -90,25 +85,26 @@ mem0 itself has no concept of short-term or long-term — it stores everything p
 | | Short-term | Long-term |
 |---|---|---|
 | **`run_id`** | `YYYY-MM-DD` (date string) | absent |
-| **Written by** | `auto_digest.py` (automated) | Agent explicitly, `memory_sync.py`, or `auto_dream.py` / AutoDream (consolidated via infer=True) |
-| **Lifetime** | 7 days → evaluated for promotion | Permanent |
+| **Written by** | `auto_digest.py --today` (automated) | Agent explicitly, `memory_sync.py`, or `auto_dream.py` / AutoDream (consolidated via infer=True) |
+| **Lifetime** | 7 days → consolidated by auto_dream | Permanent |
 | **Typical content** | Daily discussions, task progress, temp decisions | Tech decisions, lessons learned, user preferences |
 
 ### Three paths to long-term memory
 
-**Path 1 — `memory_sync.py`** (daily, from `MEMORY.md`)
+**Path 1 — `memory_sync.py`** (daily UTC 01:00, from `MEMORY.md`)
 
 Each agent's `MEMORY.md` is the highest-quality memory source — curated directly by the agent during heartbeats. `memory_sync.py` syncs it to mem0 long-term memory every day at UTC 01:00, with hash-based dedup to avoid redundant LLM calls.
 
 This is the **fastest path**: important decisions and lessons reach long-term memory the same day, without waiting for the 7-day archive cycle.
 
-**Path 2 — `auto_dream.py` / AutoDream** (daily, automatic promotion from short-term)
+**Path 2 — `auto_dream.py` / AutoDream** (daily UTC 02:00)
 
-After 7 days, each short-term memory is re-added to mem0 with `infer=True` (without `run_id`). mem0 natively decides whether to ADD (new knowledge), UPDATE (merge with existing), DELETE (redundant), or NONE (no action needed). The original short-term entry is then deleted.
+Runs two steps each night:
 
-Also runs Step 1 at the start: digests yesterday's diary directly into long-term memory (infer=True, no run_id) for high-quality nightly knowledge extraction.
+- **Step 1**: Reads yesterday's complete diary and writes it to mem0 with `infer=True` (no `run_id`) — directly into long-term memory with full-day context for high-quality extraction.
+- **Step 2**: For each 7-day-old short-term memory, re-adds it to mem0 with `infer=True` (no `run_id`). mem0 natively decides whether to ADD (new knowledge), UPDATE (merge with existing), DELETE (redundant), or NONE (no action). The original short-term entry is then deleted.
 
-This replaces the previous hand-written semantic search (is_topic_active), eliminating thousands of redundant Bedrock API calls and leveraging mem0's native intelligence instead.
+This leverages mem0's native intelligence instead of hand-written semantic search, eliminating thousands of redundant Bedrock API calls per run.
 
 **Path 3 — Agent explicit write** (on-demand)
 
@@ -131,23 +127,19 @@ run_id = absent          →  long-term  (permanent)
 
 ## Design Philosophy
 
-### Two-layer diary-to-mem0 pipeline
+### Diary-to-mem0 pipeline
 
-The diary → mem0 pipeline uses two complementary passes:
+**`auto_digest.py --today` (every 15 min, incremental)**
 
-**Layer 1 — `auto_digest.py --today` (every 15 min, incremental)**
+Runs every 15 minutes, reading only new diary content since the last run. Sends **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) to mem0 with `infer=True` — mem0 handles fact extraction and deduplication automatically. Offset is saved after each successful batch — if the process is interrupted, the next run picks up where it left off.
 
-Runs every 15 minutes, reading only new diary content since the last run. Sends **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) directly to mem0, letting mem0's own fact extraction handle distillation. Offset is saved after each successful batch — if the process is interrupted, the next run picks up where it left off.
+This provides **real-time cross-session memory**: conversations from the last ~15 minutes are available for retrieval in other sessions of the same agent.
 
-This provides **real-time memory**: conversations from the last 15 minutes are available for retrieval within the same day.
+**`auto_dream.py` Step 1 (UTC 02:00, yesterday diary → long-term)**
 
-**Layer 2 — `auto_digest.py` (daily, full LLM distill)**
+Runs once per day. Reads yesterday's complete diary and writes it to mem0 with `infer=True` (no `run_id`) — directly as long-term memory. With the full day's context available, mem0 produces higher-quality, deduplicated memories.
 
-Runs once per day on yesterday's complete diary. With the full day's context available, the LLM produces higher-quality, deduplicated memories that capture the day's overall arc rather than isolated fragments.
-
-This provides **high-quality retrospective memory** without the cost of running LLM on every incremental batch.
-
-Note: Since PR #25, auto_dream also handles yesterday diary digestion (Step 1) — the previous standalone `auto_digest.py` daily mode at UTC 01:30 has been superseded.
+This provides **high-quality nightly long-term memory** from the full day's context.
 
 ### Why session_snapshot no longer writes to mem0
 
