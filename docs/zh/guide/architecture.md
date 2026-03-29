@@ -15,9 +15,8 @@ flowchart TD
     MemoryMD["MEMORY.md\n（Agent 精选知识库）"]
     Snap(["session_snapshot.py\n（每 5 分钟，仅写日记）"])
     DigestToday(["auto_digest.py --today\n（每 15 分钟，infer=True，mem0 去重）"])
-    DigestFull(["auto_digest.py\n（每天 UTC 01:30，昨日全量）"])
-    Sync(["memory_sync.py\n（每天，同步 MEMORY.md）"])
-    Archive(["auto_dream.py\n(AutoDream)"])
+    Sync(["memory_sync.py\n（每天 UTC 01:00，同步 MEMORY.md）"])
+    Archive(["auto_dream.py\n(AutoDream，UTC 02:00)"])
 
     subgraph Mem0["mem0 Memory Service"]
         LLM(["AWS Bedrock LLM\n（记忆提炼/去重）"])
@@ -25,7 +24,6 @@ flowchart TD
         STM["短期记忆\n（run_id = 日期）"]
         LTM["长期记忆\n（无 run_id）"]
     end
-
 
     subgraph Store["向量存储"]
         S3[("S3 Vectors")]
@@ -39,11 +37,9 @@ flowchart TD
     Agents -- "主动写入\n（无 run_id）" --> LTM
     Agents -- "主动维护" --> MemoryMD
     Snap --> Diary
-    Diary -- "每 15 分钟\n（50KB 分批，直接写入）" --> DigestToday
-    Diary -- "每天 UTC 01:30\n（昨日完整日记，LLM 提炼）" --> DigestFull
+    Diary -- "每 15 分钟\n（50KB 分批，infer=True）" --> DigestToday
     MemoryMD -- "每天 UTC 01:00\n（hash 去重）" --> Sync
     DigestToday --> STM
-    DigestFull --> STM
     Sync --> LTM
     STM -- "每天 UTC 02:00\n（7天前条目）" --> Archive
     Archive -- "步骤一：昨日日记\n（infer=True）" --> LTM
@@ -64,11 +60,10 @@ flowchart TD
 
 | 组件 | 职责 |
 |---|---|
-| **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。**不再直接写入 mem0**——mem0 的写入完全由 auto_digest 负责。 |
-| **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以**按 `## ` 章节边界对齐的分批**方式（每批最大约 50KB）发送给 mem0，使用 `infer=True`——mem0 自动处理事实提取和去重。每批成功后立即持久化 offset，支持断点续传。 |
-| **auto_digest.py**（每日） | 每天 UTC 01:30 运行。通过 LLM 提炼**昨天的完整日记**，一次性处理——利用全天完整上下文产出更高质量的记忆。写入 mem0 短期记忆（`run_id=日期`）。 |
-| **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于内容 hash 去重，文件未变化时零 LLM 调用。 |
-| **auto_dream.py** / **AutoDream** | 每天 UTC 02:00 运行。**步骤一**：将昨日日记消化为长期记忆（infer=True，无 run_id）。**步骤二**：对每条 7 天前的短期记忆，以 infer=True（无 run_id）重新写入 mem0——mem0 原生决策 ADD/UPDATE/DELETE/NONE——然后删除原始短期条目。 |
+| **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。**不直接写入 mem0**——mem0 的写入完全由 auto_digest 负责。 |
+| **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=True` 写入 mem0——mem0 自动处理事实提取和去重。每批成功后立即持久化 offset，支持断点续传。 |
+| **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于 hash 去重，文件未变化时零 LLM 调用。 |
+| **auto_dream.py** / **AutoDream** | 每天 UTC 02:00 运行。**步骤一**：读取昨日完整日记 → `mem0.add(infer=True, 无 run_id)` → 长期记忆。**步骤二**：对每条 7 天前的短期记忆，以 `infer=True`（无 run_id）重新写入 mem0——mem0 原生决策 ADD/UPDATE/DELETE/NONE——然后删除原始短期条目。 |
 | **mem0 Memory Service** | 核心服务。使用 AWS Bedrock LLM 进行记忆提炼与去重，使用 Bedrock Embedding 进行向量化。 |
 | **向量存储** | 持久化记忆向量，支持 S3 Vectors 或 OpenSearch 作为后端。 |
 | **SKILL.md → 检索** | Agent 新会话启动时，读取 SKILL.md，查询 mem0 获取相关记忆，注入为上下文。 |
@@ -76,11 +71,11 @@ flowchart TD
 ## 流水线时序（UTC）
 
 ```
-每 5 分钟    session_snapshot   — 对话 → 日记文件（不写 mem0）
-每 15 分钟   auto_digest --today — 日记新增内容 → mem0 短期记忆（实时，分批写入）
-01:00        memory_sync        — MEMORY.md → mem0 长期记忆（精选知识，即时生效）
-01:30        auto_digest        — 昨日完整日记 → mem0 短期记忆（LLM 高质量提炼）
-02:00        auto_dream (AutoDream)  — 步骤一：昨日日记 → 长期记忆（infer=True）；步骤二：7天前短期记忆 → 重新写入（infer=True）+ 删除
+每 5 分钟    session_snapshot    — 对话 → 日记文件（不写 mem0）
+每 15 分钟   auto_digest --today — 日记新增内容 → mem0 短期记忆（infer=True，mem0 去重）
+01:00        memory_sync         — MEMORY.md → mem0 长期记忆（精选知识，即时生效）
+02:00        auto_dream          — 步骤一：昨日日记 → 长期记忆（infer=True）
+                                   步骤二：7天前短期记忆 → 重新写入（infer=True）+ 删除
 ```
 
 ## 记忆分层：长期 vs 短期由谁决定？
@@ -90,25 +85,26 @@ mem0 本身没有长短期概念——默认永久保存所有写入的内容。
 | | 短期记忆 | 长期记忆 |
 |---|---|---|
 | **`run_id`** | `YYYY-MM-DD`（日期字符串） | 不传 |
-| **写入者** | `auto_digest.py`（自动） | Agent 主动写入、`memory_sync.py` 或 `auto_dream.py` / AutoDream（通过 infer=True 整合） |
-| **生命周期** | 7天后触发评估 | 永久保存 |
+| **写入者** | `auto_digest.py --today`（自动） | Agent 主动写入、`memory_sync.py` 或 `auto_dream.py` / AutoDream（infer=True 整合） |
+| **生命周期** | 7天后由 auto_dream 整合 | 永久保存 |
 | **典型内容** | 当天讨论、任务进展、临时决策 | 技术决策、经验教训、用户偏好 |
 
 ### 进入长期记忆的三条路径
 
-**路径一 — `memory_sync.py`**（每天，来自 `MEMORY.md`）
+**路径一 — `memory_sync.py`**（每天 UTC 01:00，来自 `MEMORY.md`）
 
 每个 Agent 的 `MEMORY.md` 是质量最高的记忆来源——Agent 在 heartbeat 时主动维护，是其所学知识的精华提炼。`memory_sync.py` 每天 UTC 01:00 将其同步到 mem0 长期记忆，基于 hash 去重避免重复 LLM 调用。
 
 这是**最快的路径**：重要决策和经验教训当天就能进入长期记忆，无需等待 7 天归档周期。
 
-**路径二 — `auto_dream.py` / AutoDream**（每天，从短期记忆自动升级）
+**路径二 — `auto_dream.py` / AutoDream**（每天 UTC 02:00）
 
-7天后，每条短期记忆以 `infer=True`（不传 `run_id`）重新写入 mem0。mem0 原生决策是 ADD（新知识）、UPDATE（与已有记忆合并）、DELETE（冗余）还是 NONE（无需操作）。然后删除原始短期条目。
+每晚执行两个步骤：
 
-同时在开始时执行步骤一：将昨日日记直接消化为长期记忆（infer=True，无 run_id），实现高质量的夜间知识提取。
+- **步骤一**：读取昨日完整日记，以 `infer=True`（无 `run_id`）写入 mem0——直接进入长期记忆，利用全天完整上下文提取高质量知识。
+- **步骤二**：对每条 7 天前的短期记忆，以 `infer=True`（无 `run_id`）重新写入 mem0。mem0 原生决策是 ADD（新知识）、UPDATE（合并已有记忆）、DELETE（冗余）还是 NONE（无需操作），然后删除原始短期条目。
 
-这取代了之前手写的语义搜索逻辑（is_topic_active），消除了数千次冗余的 Bedrock API 调用，转而利用 mem0 的原生智能。
+利用 mem0 原生智能，取代了之前手写的语义搜索逻辑，消除了每次运行数千次冗余的 Bedrock API 调用。
 
 **路径三 — Agent 主动写入**（随时，按需）
 
@@ -131,23 +127,19 @@ run_id = 不传           →  长期记忆（永久保存）
 
 ## 设计理念
 
-### 日记到 mem0 的两层流水线
+### 日记到 mem0 的流水线
 
-日记 → mem0 的流水线采用两个互补的处理层：
+**`auto_digest.py --today`（每 15 分钟，增量）**
 
-**第一层 — `auto_digest.py --today`（每 15 分钟，增量）**
+每 15 分钟运行一次，只读取自上次运行以来的新增内容。以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=True` 发给 mem0——mem0 自动做 fact extraction 和去重。每批成功后立即保存 offset——即使进程中断，下次运行也能从断点继续。
 
-每 15 分钟运行一次，只读取自上次运行以来的新增内容。以**按 `## ` 章节边界对齐的分批**方式（每批最大约 50KB）直接发给 mem0，由 mem0 内部做 fact extraction，避免在段落中间截断上下文。每批成功后立即保存 offset——即使进程中断，下次运行也能从断点继续。
+这提供了**实时跨 session 记忆**：最近 ~15 分钟的对话可在同一 agent 的其他 session 中被检索到。
 
-这提供了**实时记忆**：最近 15 分钟的对话当天即可被检索到。
+**`auto_dream.py` 步骤一（UTC 02:00，昨日日记 → 长期记忆）**
 
-**第二层 — `auto_digest.py`（每天，全量 LLM 提炼）**
+每天运行一次。读取昨日完整日记，以 `infer=True`（无 `run_id`）写入 mem0——直接进入长期记忆。利用全天完整上下文，mem0 提取质量更高、去重更彻底的知识。
 
-每天对昨天的完整日记运行一次。LLM 能看到整天发生的全部内容，产出质量更高、去重更彻底的记忆，而不是零散的片段。
-
-这提供了**高质量的回顾性记忆**，无需在每次增量写入时都调用 LLM。
-
-注意：自 PR #25 起，auto_dream 同时负责昨日日记的消化（步骤一）——之前 UTC 01:30 独立运行的 `auto_digest.py` 每日模式已被取代。
+这提供了**高质量的夜间长期记忆**，充分利用整天的完整上下文。
 
 ### 为什么 session_snapshot 不再写入 mem0
 
