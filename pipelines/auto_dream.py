@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import sys
+import time
 import requests
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +27,9 @@ BASE_URL = "http://127.0.0.1:8230"
 USER_ID = "boss"
 ARCHIVE_DAYS = 7        # 处理多少天前的短期记忆
 ACTIVE_THRESHOLD = 0.75  # 活跃度判断阈值（语义相似度）
+MAX_MEMORIES_PER_RUN = 300  # 单次运行每个 agent 最多处理的记忆数（分页模式，剩余留到下次）
+MAX_CONSECUTIVE_ERRORS = 3  # 连续错误达到此数则跳过该 agent 剩余记忆
+INTER_MEMORY_SLEEP = 1.0    # 每条记忆处理后的 sleep（秒），防止打爆 server
 LOG_FILE = Path(__file__).parent.parent / "auto_dream.log"
 
 # 优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
@@ -171,8 +175,17 @@ def archive_agent(agent_id: str, target_run_id: str) -> tuple[int, int]:
         return 0, 0
 
     logger.info(f"[{agent_id}] Found {len(memories)} memories to process")
+
+    if len(memories) > MAX_MEMORIES_PER_RUN:
+        logger.warning(
+            f"[{agent_id}] Too many memories ({len(memories)}), "
+            f"processing first {MAX_MEMORIES_PER_RUN} this run (remainder will be processed in future runs)"
+        )
+        memories = memories[:MAX_MEMORIES_PER_RUN]
+
     promoted = 0
     deleted = 0
+    consecutive_errors = 0
 
     for mem in memories:
         mem_id = mem.get("id")
@@ -185,21 +198,25 @@ def archive_agent(agent_id: str, target_run_id: str) -> tuple[int, int]:
 
         logger.info(f"[{agent_id}] Processing: {mem_text[:60]}...")
 
-        if is_topic_active(agent_id, mem_text, target_run_id):
-            logger.info(f"[{agent_id}]   → Active topic, promoting to long-term")
-            try:
+        try:
+            if is_topic_active(agent_id, mem_text, target_run_id):
+                logger.info(f"[{agent_id}]   → Active topic, promoting to long-term")
                 promote_to_long_term(agent_id, mem_text, mem_metadata)
                 delete_memory(mem_id)
                 promoted += 1
-            except Exception as e:
-                logger.error(f"[{agent_id}]   → Failed to promote/delete: {e}")
-        else:
-            logger.info(f"[{agent_id}]   → Inactive topic, deleting")
-            try:
+            else:
+                logger.info(f"[{agent_id}]   → Inactive topic, deleting")
                 delete_memory(mem_id)
                 deleted += 1
-            except Exception as e:
-                logger.error(f"[{agent_id}]   → Failed to delete: {e}")
+            consecutive_errors = 0
+        except Exception as e:
+            consecutive_errors += 1
+            logger.error(f"[{agent_id}]   → Error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}")
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                logger.error(f"[{agent_id}] {MAX_CONSECUTIVE_ERRORS} consecutive errors, aborting remaining memories")
+                break
+
+        time.sleep(INTER_MEMORY_SLEEP)
 
     return promoted, deleted
 

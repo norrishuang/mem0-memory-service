@@ -493,7 +493,10 @@ def process_agent(agent_id: str) -> None:
             messages, new_offset = read_session_messages(session_path, prev)
             if not messages:
                 # 即使没消息也更新 offset（文件可能只有非消息行）
-                offsets[session_key] = {"path": str(session_path), "offset": new_offset}
+                if session_key not in offsets:
+                    offsets[session_key] = {}
+                offsets[session_key]["path"] = str(session_path)
+                offsets[session_key]["offset"] = new_offset
                 continue
 
             written, new_messages = write_to_memory(messages, diary_path, agent_id, session_key)
@@ -501,7 +504,12 @@ def process_agent(agent_id: str) -> None:
             if written > 0 and new_messages:
                 logger.info(f"[{agent_id}] {len(new_messages)} new messages written to diary (mem0 write skipped, handled by auto_digest)")
 
-            offsets[session_key] = {"path": str(session_path), "offset": new_offset}
+            # Reload offsets from disk to pick up written_hashes saved by write_to_memory()
+            offsets = load_offsets()
+            if session_key not in offsets:
+                offsets[session_key] = {}
+            offsets[session_key]["path"] = str(session_path)
+            offsets[session_key]["offset"] = new_offset
         except Exception as e:
             logger.error(f"[{agent_id}] Error processing session {session_key}: {e}")
 
