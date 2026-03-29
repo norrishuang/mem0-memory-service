@@ -327,7 +327,9 @@ async def list_memories(
         kwargs["run_id"] = run_id
 
     try:
-        results = memory.get_all(**kwargs)
+        loop = asyncio.get_event_loop()
+        kw = dict(kwargs)
+        results = await loop.run_in_executor(_mem0_executor, lambda: memory.get_all(**kw))
         return {"status": "ok", "results": results}
     except Exception as e:
         logger.error(f"Error listing memories: {e}", exc_info=True)
@@ -338,7 +340,9 @@ async def list_memories(
 async def get_memory(memory_id: str):
     """Get a specific memory by ID."""
     try:
-        result = memory.get(memory_id)
+        loop = asyncio.get_event_loop()
+        mid = memory_id
+        result = await loop.run_in_executor(_mem0_executor, lambda: memory.get(mid))
         if not result:
             raise HTTPException(status_code=404, detail="Memory not found")
         return {"status": "ok", "result": result}
@@ -353,7 +357,9 @@ async def get_memory(memory_id: str):
 async def update_memory(req: UpdateMemoryRequest):
     """Update an existing memory's text."""
     try:
-        result = memory.update(req.memory_id, req.text)
+        loop = asyncio.get_event_loop()
+        mid, txt = req.memory_id, req.text
+        result = await loop.run_in_executor(_mem0_executor, lambda: memory.update(mid, txt))
         return {"status": "ok", "result": result}
     except Exception as e:
         logger.error(f"Error updating memory: {e}", exc_info=True)
@@ -364,7 +370,9 @@ async def update_memory(req: UpdateMemoryRequest):
 async def delete_memory(memory_id: str):
     """Delete a specific memory."""
     try:
-        memory.delete(memory_id)
+        loop = asyncio.get_event_loop()
+        mid = memory_id
+        await loop.run_in_executor(_mem0_executor, lambda: memory.delete(mid))
         return {"status": "ok", "deleted": memory_id}
     except Exception as e:
         logger.error(f"Error deleting memory: {e}", exc_info=True)
@@ -381,7 +389,8 @@ async def reset_memories(user_id: str, agent_id: Optional[str] = None):
         kwargs["agent_id"] = agent_id
 
     try:
-        memory.reset()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_mem0_executor, lambda: memory.reset())
         return {"status": "ok", "message": f"All memories reset for user={user_id}"}
     except Exception as e:
         logger.error(f"Error resetting memories: {e}", exc_info=True)
@@ -392,7 +401,9 @@ async def reset_memories(user_id: str, agent_id: Optional[str] = None):
 async def memory_history(memory_id: str):
     """Get the change history of a specific memory."""
     try:
-        result = memory.history(memory_id)
+        loop = asyncio.get_event_loop()
+        mid = memory_id
+        result = await loop.run_in_executor(_mem0_executor, lambda: memory.history(mid))
         return {"status": "ok", "history": result}
     except Exception as e:
         logger.error(f"Error getting memory history: {e}", exc_info=True)
