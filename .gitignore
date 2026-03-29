@@ -14,7 +14,7 @@ audit_logs/
 .digest_state.json
 .snapshot_offsets.json
 auto_digest.log
-archive.log
+auto_dream.log
 
 # VitePress
 docs/.vitepress/dist

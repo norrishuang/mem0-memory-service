@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=oneshot
 WorkingDirectory=/home/ec2-user/workspace/mem0-memory-service
-ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/session_snapshot.py
+ExecStart=/usr/bin/python3 /home/ec2-user/workspace/mem0-memory-service/pipelines/session_snapshot.py
 StandardOutput=journal
 StandardError=journal
 

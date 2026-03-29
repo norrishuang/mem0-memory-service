@@ -22,8 +22,8 @@ import requests
 WORKSPACE_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
 OPENCLAW_CONFIG = WORKSPACE_BASE / "openclaw.json"
 
-LOG_FILE = Path(__file__).parent / "auto_digest.log"
-OFFSET_FILE = Path(__file__).parent / "auto_digest_offset.json"
+LOG_FILE = Path(__file__).parent.parent / "auto_digest.log"
+OFFSET_FILE = Path(__file__).parent.parent / "auto_digest_offset.json"
 MEM0_API_URL = "http://127.0.0.1:8230/memory/add"
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 AWS_REGION = "us-east-1"

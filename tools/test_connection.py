@@ -6,8 +6,8 @@ Reads config from .env / environment variables via config.py.
 import sys
 import os
 
-# Ensure config.py is importable
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Ensure config.py is importable (parent directory)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from config import get_mem0_config, OPENSEARCH_HOST, SERVICE_PORT
 from mem0 import Memory
