@@ -87,11 +87,12 @@ On every heartbeat tick, the agent performs memory maintenance in order:
               ┌─────────────┼──────────────┬──────────────┐
               │             │              │              │
               ▼             ▼              ▼              ▼
-         Heartbeat      Every 15min    UTC 01:30      UTC 01:00
-         (agent         auto_digest    auto_digest    memory_sync
-          self-         --today        (full mode,    (sync
-          distills)     (incremental,  LLM extract    MEMORY.md)
-                        direct write)  yesterday)
+         Heartbeat      Every 15min    UTC 02:00      UTC 01:00
+         (agent         auto_digest    auto_dream     memory_sync
+          self-         --today        (Step1:        (sync
+          distills)     (infer=True,   yesterday      MEMORY.md)
+                        mem0 dedup)    diary +
+                                       Step2: 7d STM)
               │             │              │              │
               ▼             ▼              ▼              ▼
          MEMORY.md     mem0 short-    mem0 short-    mem0 long-
@@ -119,23 +120,20 @@ All automation runs as systemd user timers:
 | Every 5 min | `pipelines/session_snapshot.py` | Capture session conversations → diary file |
 | Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=True, mem0 handles dedup) |
 | 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
-| 01:30 | `pipelines/auto_digest.py` | Full mode: LLM-extract yesterday's complete diary → mem0 short-term |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Step 1: yesterday diary → mem0 long-term (infer=True); Step 2: 7-day-old short-term → re-add to long-term (infer=True) then delete |
 
-## Two Modes of auto_digest
+## auto_digest Mode
 
-`auto_digest.py` runs in two different modes:
+`auto_digest.py` runs in one active mode:
 
 **`--today` mode (every 15 min, incremental)**
 Picks up new content from today's diary since the last run (offset-based). Writes to mem0 short-term memory with `infer=True` — mem0 handles fact extraction and deduplication automatically. Skips batches smaller than 500 bytes to avoid noisy micro-writes. On failure, retains the offset so the next run resumes from the same point.
 
-**Default mode (UTC 01:30, full)**
-Reads yesterday's complete diary, calls a local Bedrock LLM (Claude Haiku) to extract meaningful short-term events, and writes each event individually to mem0. Higher quality output than incremental mode; acts as a cleanup pass to catch anything the 15-min incremental runs may have missed.
-
 ```
 Every 15 min (--today):  diary new content → POST to mem0 (infer=True, mem0 dedup)
-UTC 01:30 (default):     yesterday's full diary → LLM extract → mem0
 ```
+
+> **Note**: The previous default full mode (UTC 01:30, LLM-extract yesterday's diary → mem0 short-term) has been superseded by `auto_dream.py` Step 1, which writes directly to long-term memory (no run_id) with higher quality.
 
 ## Two Roles of session_snapshot
 
@@ -195,30 +193,30 @@ When a new session starts, the skill instructs the agent to read **both diary fi
 Session start
   ├── Read memory/today.md      ← today's raw diary (real-time, not yet in mem0)
   ├── Read memory/yesterday.md  ← yesterday's raw diary (coverage gap buffer)
-  └── Search mem0 --combined    ← distilled memories (T+1 after 01:30 digest)
+  └── Search mem0 --combined    ← distilled memories (long-term + recent short-term)
 ```
 
 **Why today's diary?**
-`auto_digest.py` runs at UTC 01:30, processing *yesterday's* complete diary. Anything that happened today hasn't been digested yet — it only exists in `memory/today.md`. Reading this file is the only way to recover same-day context after a session reset.
+`auto_dream.py` Step 1 runs at UTC 02:00, digesting *yesterday's* complete diary. Anything that happened today hasn't been digested yet — it only exists in `memory/today.md`. Reading this file is the only way to recover same-day context after a session reset.
 
 **Why yesterday's diary?**
-There is a coverage gap: the window between yesterday's late-night conversations and when `auto_digest` finishes running (UTC 01:30). For example:
+There is a coverage gap: the window between yesterday's late-night conversations and when `auto_dream` finishes running (UTC 02:00). For example:
 
 ```
 Yesterday 23:50  Important discussion happens → written to memory/yesterday.md
 Today     00:10  Session resets, new session starts
-Today     01:30  auto_digest runs → yesterday's diary enters mem0
+Today     02:00  auto_dream runs → yesterday's diary enters mem0 long-term
 ```
 
-If the new session starts before 01:30, mem0 doesn't have last night's content yet. Reading `memory/yesterday.md` directly covers this gap.
+If the new session starts before 02:00, mem0 doesn't have last night's content yet. Reading `memory/yesterday.md` directly covers this gap.
 
 **The complete coverage map:**
 
 | Time window | Covered by |
 |-------------|------------|
 | Today (T+0) | `memory/today.md` (real-time) |
-| Yesterday after-midnight to 01:30 | `memory/yesterday.md` (gap buffer) |
-| Yesterday 01:30 onward | mem0 short-term (distilled) |
+| Yesterday after-midnight to 02:00 | `memory/yesterday.md` (gap buffer) |
+| Yesterday 02:00 onward | mem0 long-term (AutoDream Step1 digested) |
 | Last 7 days | mem0 short-term (`--combined`) |
 | Older than 7 days | mem0 long-term (AutoDream-consolidated) |
 

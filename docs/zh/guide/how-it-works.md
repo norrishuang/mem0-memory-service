@@ -87,11 +87,11 @@ Agent 读到「🔴 Agent Memory Behavior」规则
               ┌─────────────┼──────────────┬──────────────┐
               │             │              │              │
               ▼             ▼              ▼              ▼
-          Heartbeat      每 15 分钟     UTC 01:30      UTC 01:00
-          （agent        auto_digest   auto_digest    memory_sync
-           自我提炼）    --today       （全量模式，    （同步
-                         (增量，        LLM 提取       MEMORY.md）
-                          直接写入）     昨日日记）
+          Heartbeat      每 15 分钟     UTC 02:00      UTC 01:00
+          （agent        auto_digest   auto_dream     memory_sync
+           自我提炼）    --today       （Step1:        （同步
+                         (infer=True,   昨日日记 +     MEMORY.md）
+                          mem0 去重）    Step2: 7天STM）
               │             │              │              │
               ▼             ▼              ▼              ▼
           MEMORY.md     mem0 短期记忆  mem0 短期记忆  mem0 长期记忆
@@ -119,23 +119,20 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 | 每 5 分钟 | `pipelines/session_snapshot.py` | 捕获会话对话 → 日记文件 |
 | 每 15 分钟 | `pipelines/auto_digest.py --today` | 增量模式：读取日记新增内容 → mem0 短期记忆（infer=True，mem0 自动去重） |
 | 01:00 | `pipelines/memory_sync.py` | 同步 `MEMORY.md` → mem0 长期记忆（hash 去重） |
-| 01:30 | `pipelines/auto_digest.py` | 全量模式：LLM 提取昨日完整日记 → mem0 短期记忆 |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**：Step1: 昨日日记 → mem0 长期记忆（infer=True）；Step2: 7天前短期记忆 → re-add 到长期（infer=True）后删除 |
 
-## auto_digest 的两种模式
+## auto_digest 模式
 
-`auto_digest.py` 以两种不同模式运行：
+`auto_digest.py` 只有一种活跃模式：
 
 **`--today` 增量模式（每 15 分钟）**
 基于 offset 记录，每次只读取日记文件自上次运行以来的新增内容。以 `infer=True` 写入 mem0，由 mem0 自动做 fact extraction 和去重。新增内容不足 500 字节时跳过，避免无意义的小写入。写入失败时保留 offset，下次从同一断点续传。
 
-**默认全量模式（UTC 01:30）**
-读取昨天的完整日记文件，调用本地 Bedrock LLM（Claude Haiku）提取有意义的短期事件，逐条写入 mem0。输出质量高于增量模式，同时作为兜底——补齐 15 分钟增量模式可能遗漏的内容。
-
 ```
 每 15 分钟 (--today)：  日记新增内容 → POST 给 mem0（infer=True，mem0 去重）
-UTC 01:30 (默认)：      昨日完整日记 → LLM 提取 → mem0
 ```
+
+> **注**：之前的默认全量模式（UTC 01:30，LLM 提取昨日日记 → mem0 短期记忆）已被 `auto_dream.py` Step 1 取代——后者直接写入长期记忆（无 run_id），质量更高。
 
 ## session_snapshot 的两个角色
 
@@ -195,30 +192,30 @@ python3 cli.py add \
 Session 启动
   ├── 读 memory/今天.md      ← 今天的原始日记（实时，尚未进 mem0）
   ├── 读 memory/昨天.md      ← 昨天的原始日记（覆盖时间窗口盲区）
-  └── search mem0 --combined ← 提炼后的记忆（T+1，01:30 之后）
+  └── search mem0 --combined ← 提炼后的记忆（长期 + 近期短期记忆）
 ```
 
 **为什么要读今天的日记？**
-`auto_digest.py` 在 UTC 01:30 运行，处理的是*昨天*的完整日记。今天发生的所有事情还没有被提炼——只存在于 `memory/今天.md` 里。Session 重置后，读这个文件是恢复当天上下文的唯一途径。
+`auto_dream.py` Step 1 在 UTC 02:00 运行，处理的是*昨天*的完整日记。今天发生的所有事情还没有被提炼——只存在于 `memory/今天.md` 里。Session 重置后，读这个文件是恢复当天上下文的唯一途径。
 
 **为什么要读昨天的日记？**
-存在一个覆盖盲区：昨天深夜的对话，到 `auto_digest` 完成运行（UTC 01:30）之间的时间窗口。例如：
+存在一个覆盖盲区：昨天深夜的对话，到 `auto_dream` 完成运行（UTC 02:00）之间的时间窗口。例如：
 
 ```
 昨天 23:50  发生了重要讨论 → 写入 memory/昨天.md
 今天 00:10  Session 重置，新 session 启动
-今天 01:30  auto_digest 运行 → 昨天日记进入 mem0
+今天 02:00  auto_dream 运行 → 昨天日记进入 mem0 长期记忆
 ```
 
-如果新 session 在 01:30 之前启动，mem0 里还没有昨晚的内容。直接读 `memory/昨天.md` 可以覆盖这个盲区。
+如果新 session 在 02:00 之前启动，mem0 里还没有昨晚的内容。直接读 `memory/昨天.md` 可以覆盖这个盲区。
 
 **完整的时间覆盖地图：**
 
 | 时间窗口 | 覆盖手段 |
 |---------|---------|
 | 今天（T+0） | `memory/今天.md`（实时） |
-| 昨天深夜到今天 01:30 | `memory/昨天.md`（盲区缓冲） |
-| 昨天 01:30 之后 | mem0 短期记忆（已提炼） |
+| 昨天深夜到今天 02:00 | `memory/昨天.md`（盲区缓冲） |
+| 昨天 02:00 之后 | mem0 长期记忆（AutoDream Step1 提炼） |
 | 最近 7 天 | mem0 短期记忆（`--combined`） |
 | 7 天以上 | mem0 长期记忆（AutoDream 整合后） |
 
