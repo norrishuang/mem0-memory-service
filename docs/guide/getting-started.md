@@ -102,13 +102,13 @@ cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/sys
 cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
 
 # Archive — promotes/deletes 7-day-old short-term memories daily at UTC 02:00
-cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
+cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
 
 systemctl --user daemon-reload
 systemctl --user enable --now mem0-snapshot.timer
 systemctl --user enable --now mem0-memory-sync.timer
 systemctl --user enable --now mem0-auto-digest.timer
-systemctl --user enable --now mem0-archive.timer
+systemctl --user enable --now mem0-dream.timer
 ```
 
 ### Method 3: One-Line AI Deploy Prompt
@@ -156,12 +156,12 @@ Send the following prompt to your AI assistant to auto-deploy:
 > cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
 > cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
 > cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-> cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
+> cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
 > systemctl --user daemon-reload
 > systemctl --user enable --now mem0-snapshot.timer
 > systemctl --user enable --now mem0-memory-sync.timer
 > systemctl --user enable --now mem0-auto-digest.timer
-> systemctl --user enable --now mem0-archive.timer
+> systemctl --user enable --now mem0-dream.timer
 > ```
 >
 > **Step 7: Enable the mem0-memory Skill in OpenClaw**
@@ -235,11 +235,11 @@ python3 cli.py search --user me --agent <your-agent-id> --query "refactoring" --
 | Type | run_id | Lifetime | Use Case |
 |------|--------|----------|----------|
 | **Long-term** | None | Permanent | Tech decisions, lessons, preferences |
-| **Short-term** | `YYYY-MM-DD` | 7 days → archive | Daily discussions, temp decisions, task progress |
+| **Short-term** | `YYYY-MM-DD` | 7 days → AutoDream | Daily discussions, temp decisions, task progress |
 
 **Three paths to long-term memory:**
 1. `memory_sync.py` — syncs `MEMORY.md` daily (same-day, curated knowledge)
-2. `archive.py` — promotes active short-term memories after 7 days
+2. `pipelines/auto_dream.py` (AutoDream) — promotes active short-term memories after 7 days
 3. Agent explicit write — call CLI without `--run` at any time
 
 ## Shared Knowledge Base

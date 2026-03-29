@@ -100,13 +100,13 @@ cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/sys
 cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
 
 # 归档 — 每天 UTC 02:00 对 7 天前短期记忆进行升级或删除
-cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
+cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
 
 systemctl --user daemon-reload
 systemctl --user enable --now mem0-snapshot.timer
 systemctl --user enable --now mem0-memory-sync.timer
 systemctl --user enable --now mem0-auto-digest.timer
-systemctl --user enable --now mem0-archive.timer
+systemctl --user enable --now mem0-dream.timer
 ```
 
 ### 方法 3：一键 AI 部署提示词
@@ -154,12 +154,12 @@ systemctl --user enable --now mem0-archive.timer
 > cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
 > cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
 > cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-> cp systemd/mem0-archive.service systemd/mem0-archive.timer ~/.config/systemd/user/
+> cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
 > systemctl --user daemon-reload
 > systemctl --user enable --now mem0-snapshot.timer
 > systemctl --user enable --now mem0-memory-sync.timer
 > systemctl --user enable --now mem0-auto-digest.timer
-> systemctl --user enable --now mem0-archive.timer
+> systemctl --user enable --now mem0-dream.timer
 > ```
 >
 > **步骤 7：为 OpenClaw Agent 启用 mem0-memory Skill**
@@ -237,7 +237,7 @@ python3 cli.py search --user me --agent <your-agent-id> --query "重构" --combi
 
 **进入长期记忆的三条路径：**
 1. `memory_sync.py` — 每天同步 `MEMORY.md`（当天生效，精选知识）
-2. `archive.py` — 7 天后对活跃短期记忆进行升级
+2. `pipelines/auto_dream.py`（AutoDream）— 7 天后对活跃短期记忆进行升级
 3. Agent 主动写入 — 随时调用 CLI，不传 `--run` 参数
 
 ## 共享知识库
