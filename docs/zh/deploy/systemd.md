@@ -28,7 +28,7 @@ systemctl --user enable --now mem0-snapshot.timer
 
 ### 自动摘要（每 15 分钟）
 
-从日记文件中提取短期事件，以 `run_id=YYYY-MM-DD` 的形式存入 mem0。
+从日记文件中提取短期事件，以 `infer=True` 和 `run_id=YYYY-MM-DD` 的形式存入 mem0。mem0 自动处理事实提取和去重。
 
 ```bash
 # 使用 cron
@@ -37,7 +37,9 @@ systemctl --user enable --now mem0-snapshot.timer
 
 ### AutoDream（每天 UTC 02:00）
 
-处理超过 7 天的短期记忆 — 活跃主题升级为长期记忆，不活跃的则删除。
+每晚运行两步整合：
+- **Step 1**：读取昨天日记 → `mem0.add(infer=True, 无 run_id)` → 长期记忆
+- **Step 2**：对每条超过 7 天的短期记忆，调用 `mem0.add(infer=True, 无 run_id)` — mem0 决策 ADD/UPDATE/DELETE/NONE — 然后删除原始条目
 
 ```bash
 sudo cp mem0-dream.service /etc/systemd/system/
@@ -69,4 +71,4 @@ journalctl -u mem0-dream.service -f
 |------|-----------|--------|---------|
 | `pipelines/session_snapshot.py` | 每 5 分钟 | systemd 用户定时器 | 保存会话对话到日记 |
 | `pipelines/auto_digest.py` | 每 15 分钟 | cron | 从日记中提取短期记忆 |
-| `pipelines/auto_dream.py` | 每天 02:00 UTC | systemd 系统定时器 | **AutoDream**：归档/删除过期短期记忆 |
+| `pipelines/auto_dream.py` | 每天 02:00 UTC | systemd 系统定时器 | **AutoDream**：日记→长期记忆 + 通过 mem0 原生推理清理短期记忆 |
