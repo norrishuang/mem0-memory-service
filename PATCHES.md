@@ -46,6 +46,8 @@ python3 patch_s3vectors_filter.py
 
 ## Patch 4: 添加 MiniMax M2.5 模型支持 (Bedrock)
 
+> ✅ **已解决**：此问题已通过 upstream PR [#4609](https://github.com/mem0ai/mem0/pull/4609) 修复（2026-03-30 合并）。`pip install --upgrade mem0ai` 即可，无需手动 patch。
+
 ### 问题 1: PROVIDERS 不认识 minimax
 - **现象**: 使用 `minimax.minimax-m2.5` 时报 `ValueError: Unknown provider in model`
 - **修复**: `PROVIDERS` 列表加入 `"minimax"`
@@ -64,8 +66,6 @@ python3 patch_minimax_support.py
 ```
 
 **对应 upstream PR**: [mem0ai/mem0#4609](https://github.com/mem0ai/mem0/pull/4609)
-
-> ⚠️ `pip install --upgrade mem0ai` 后需重新执行本脚本，直到 PR 合并为止。
 
 ## 检查 PR 状态
 

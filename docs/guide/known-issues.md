@@ -9,7 +9,7 @@ mem0 has known upstream bugs that affect AWS Bedrock + OpenSearch / S3 Vectors u
 | OpenSearch 3.x `nmslib` engine deprecated | [#4392](https://github.com/mem0ai/mem0/pull/4392) | OpenSearch 3.0+ | Pending merge |
 | Converse API `temperature` + `top_p` conflict | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Claude Haiku 4.5 and newer models | ✅ Merged via [#4469](https://github.com/mem0ai/mem0/pull/4469) |
 | S3Vectors invalid filter format | [#4554](https://github.com/mem0ai/mem0/pull/4554) | S3 Vectors backend | Pending merge |
-| MiniMax models not recognized as valid provider | [#4609](https://github.com/mem0ai/mem0/pull/4609) | All MiniMax models on Bedrock | Pending merge |
+| MiniMax models not recognized as valid provider | [#4609](https://github.com/mem0ai/mem0/pull/4609) | All MiniMax models on Bedrock | ✅ Merged 2026-03-30 |
 | **Telemetry causes thread leak** | — (config, no PR needed) | All deployments | ✅ Fix: set `MEM0_TELEMETRY=false` |
 
 ## Configuration Issue: Telemetry Thread Leak
@@ -81,32 +81,18 @@ python3 patch_s3vectors_filter.py
 
 ## PR #4609: MiniMax Models Not Recognized on AWS Bedrock
 
-mem0's `aws_bedrock` LLM provider maintains an internal `PROVIDERS` allowlist. MiniMax models (e.g. `minimax.minimax-m2.5`) are not in this list, causing a `ValueError: Unknown provider in model` at startup.
+> ✅ **Resolved**: Fixed in upstream via [PR #4609](https://github.com/mem0ai/mem0/pull/4609) (merged 2026-03-30). Run `pip install --upgrade mem0ai` — no manual patch needed.
 
-There are three bugs that need to be fixed together:
+mem0's `aws_bedrock` LLM provider had three bugs affecting MiniMax M2.x models on Bedrock Converse API:
 
 **Bug 1 — `PROVIDERS` allowlist**  
-`minimax` is missing from the list, so any `minimax.*` model ID raises `ValueError`.
+`minimax` was missing from the list, causing `ValueError: Unknown provider in model` at startup.
 
 **Bug 2 — Reasoning model response format**  
-MiniMax M2.5 (and M2.1) are reasoning models. Their Bedrock Converse API response includes a `reasoningContent` block *before* the actual `text` block. Taking `content[0]["text"]` directly raises a `KeyError`.
+MiniMax M2.5 (and M2.1) are reasoning models. Their Converse API response includes a `reasoningContent` block *before* the actual `text` block. Taking `content[0]["text"]` directly raised a `KeyError`.
 
 **Bug 3 — System messages discarded**  
-mem0 passes a `role=system` message instructing the LLM to return JSON. The original code only forwarded the last user message to the Converse API, silently dropping the system prompt. Without the JSON instruction, MiniMax returns free-form markdown, causing `json.JSONDecodeError` in mem0's fact-extraction pipeline.
-
-**Patch steps:**
-
-```bash
-# One-click patch (provided by this project — fixes all 3 bugs)
-python3 patch_minimax_support.py
-```
-
-**Configuration after patching:**
-
-```env
-LLM_MODEL=minimax.minimax-m2.5
-DIGEST_LLM_MODEL=minimax.minimax-m2.5
-```
+The original code only forwarded the last user message to the Converse API, silently dropping `role=system` messages. Without the JSON instruction, MiniMax returned free-form markdown, causing `json.JSONDecodeError` in mem0's fact-extraction pipeline.
 
 ### Why MiniMax M2.5?
 
@@ -141,7 +127,7 @@ Check PR status:
 ```bash
 gh pr view 4392 --repo mem0ai/mem0 --json state -q .state
 gh pr view 4554 --repo mem0ai/mem0 --json state -q .state
-gh pr view 4609 --repo mem0ai/mem0 --json state -q .state
+# PR #4609 (MiniMax) — merged 2026-03-30, no longer needs tracking
 ```
 
 ::: warning
