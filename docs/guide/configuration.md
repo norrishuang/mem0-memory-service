@@ -33,6 +33,7 @@ vim .env
 | `DIGEST_LLM_REGION` | same as `AWS_REGION` | AWS region override for the digest LLM |
 | `SERVICE_HOST` | `0.0.0.0` | Service bind address |
 | `SERVICE_PORT` | `8230` | Service port |
+| `MEM0_TELEMETRY` | `true` | **⚠️ 建议关闭。** mem0 默认开启匿名遥测，每次 `add/search/delete` 都向 `us.i.posthog.com` 上报操作元数据（collection 名、LLM 类型、vector store 类型等），**同时每次调用都创建一个新的 PostHog Consumer 线程**，长时间运行后（尤其是 auto_dream 批量处理记忆后）会积累大量僵尸线程（测试中观察到 135 个）。私有部署请设为 `false`。 |
 
 ## Example `.env`
 
@@ -59,6 +60,9 @@ LLM_MAX_TOKENS=2000
 
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8230
+
+# 关闭 mem0 匿名遥测（强烈建议，避免线程泄漏）
+MEM0_TELEMETRY=false
 ```
 
 ## LLM Selection

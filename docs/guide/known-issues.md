@@ -10,10 +10,38 @@ mem0 has known upstream bugs that affect AWS Bedrock + OpenSearch / S3 Vectors u
 | Converse API `temperature` + `top_p` conflict | [#4393](https://github.com/mem0ai/mem0/pull/4393) | Claude Haiku 4.5 and newer models | ✅ Merged via [#4469](https://github.com/mem0ai/mem0/pull/4469) |
 | S3Vectors invalid filter format | [#4554](https://github.com/mem0ai/mem0/pull/4554) | S3 Vectors backend | Pending merge |
 | MiniMax models not recognized as valid provider | [#4609](https://github.com/mem0ai/mem0/pull/4609) | All MiniMax models on Bedrock | Pending merge |
+| **Telemetry causes thread leak** | — (config, no PR needed) | All deployments | ✅ Fix: set `MEM0_TELEMETRY=false` |
+
+## Configuration Issue: Telemetry Thread Leak
+
+mem0 enables anonymous telemetry **by default**. Every `add / search / delete` call triggers `capture_event()` in `mem0/memory/telemetry.py`, which:
+
+1. Creates a new `AnonymousTelemetry` instance → a new `Posthog` client
+2. Each `Posthog` client spawns a `Consumer` background thread
+3. The thread is a daemon but **never exits** — it blocks in `queue.get()` indefinitely
+4. Data is uploaded to `https://us.i.posthog.com` (mem0 official PostHog), including your collection name, LLM type, and vector store type
+
+**Impact:** After a long `auto_dream` run (hundreds of add/delete calls), we observed **135 zombie PostHog threads**. Thread count grows ~1/request and will eventually destabilize the process.
+
+**Fix — add to `.env`:**
+
+```env
+MEM0_TELEMETRY=false
+```
+
+Then restart the service:
+
+```bash
+sudo systemctl restart mem0-memory.service
+```
+
+Thread count drops from 135 → 8 immediately after restart.
+
+::: tip
+This is an official config option supported by mem0. Private/self-hosted deployments have no reason to send telemetry to mem0's servers.
+:::
 
 ## PR #4392: OpenSearch 3.x nmslib Engine Deprecated
-
-mem0's OpenSearch adapter hardcodes `"engine": "nmslib"` for k-NN index creation. OpenSearch 3.0+ has deprecated the nmslib engine, causing `mapper_parsing_exception` when creating indices.
 
 **Patch steps:**
 
