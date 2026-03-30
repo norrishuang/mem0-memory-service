@@ -133,6 +133,23 @@ Picks up new content from today's diary since the last run (offset-based). Write
 Every 15 min (--today):  diary new content → POST to mem0 (infer=True, mem0 dedup)
 ```
 
+**Why short-term entries don't pollute long-term memory**
+
+`auto_digest` writes with a `run_id = YYYY-MM-DD`. This is the key that controls mem0's dedup scope: when `infer=True` is used, mem0 searches for similar memories **only within the same `run_id`**. So today's entries dedup against each other, but never interfere with existing long-term memories (which have no `run_id`).
+
+This means:
+- Writing every 15 minutes is safe — no risk of silently overwriting long-term knowledge
+- Today's short-term memories accumulate and refine within their own namespace
+
+**Promotion to long-term: one global dedup at auto_dream time**
+
+The cross-`run_id` merge happens only during `auto_dream` (UTC 02:00). When 7-day-old short-term memories are re-added without `run_id`, mem0 searches the entire long-term store and decides ADD / UPDATE / DELETE / NONE. This is the one moment of global dedup — keeping long-term memory compact and non-redundant.
+
+```
+Every 15 min  → short-term  (run_id=today,   dedup within same day only)
+UTC 02:00     → long-term   (no run_id,       global dedup across all history)
+```
+
 > **Note**: The previous default full mode (UTC 01:30, LLM-extract yesterday's diary → mem0 short-term) has been superseded by `auto_dream.py` Step 1, which writes directly to long-term memory (no run_id) with higher quality.
 
 ## Two Roles of session_snapshot

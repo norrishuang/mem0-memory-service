@@ -131,6 +131,27 @@ run_id = "2026-03-27"   →  short-term (today's entries)
 run_id = absent          →  long-term  (permanent)
 ```
 
+### Deduplication boundary: `run_id` scoping
+
+This is the core design insight behind the two-tier system.
+
+When mem0 receives a write with `infer=True`, it runs a semantic dedup search to decide ADD / UPDATE / DELETE / NONE. **The search scope is bounded by `run_id`:**
+
+| Write | Dedup scope | Effect |
+|-------|-------------|--------|
+| `auto_digest --today` (with `run_id=YYYY-MM-DD`) | Only same-day entries | Today's short-term memories dedup against each other; don't disturb long-term |
+| `auto_dream` consolidate (no `run_id`) | All long-term entries (no run_id) | 7-day-old short-term memories globally dedup against entire long-term history |
+
+This boundary has two important consequences:
+
+**1. Short-term writes are safe and cheap.**
+`auto_digest` runs every 15 minutes. Because it writes with `run_id=today`, it only deduplicates within today's entries. It never triggers a global search across all long-term memories — keeping costs low and writes fast.
+
+**2. Global dedup happens exactly once, at promotion time.**
+When `auto_dream` promotes a short-term memory to long-term (re-add with no `run_id`), mem0 searches across the entire long-term store. This is the moment where redundant, updated, or already-covered knowledge gets merged. The result: **long-term memory stays compact and non-redundant**, even after months of daily operation.
+
+In practice, we observed 1,800 short-term entries consolidating down to ~78 long-term entries after the first few auto_dream cycles — a ~23× compression ratio, retaining the distilled knowledge while eliminating noise.
+
 ## Design Philosophy
 
 ### Diary-to-mem0 pipeline
