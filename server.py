@@ -96,13 +96,16 @@ async def audit_log_middleware(request: Request, call_next):
 
     agent_id = "-"
     user_id = "-"
+    # Try query params first (for GET/DELETE requests)
+    agent_id = request.query_params.get("agent_id") or "-"
+    user_id = request.query_params.get("user_id") or "-"
     if request.method == "POST":
         try:
             body_bytes = await request.body()
             if body_bytes:
                 body = json.loads(body_bytes)
-                agent_id = body.get("agent_id", "-") or "-"
-                user_id = body.get("user_id", "-") or "-"
+                agent_id = body.get("agent_id") or agent_id
+                user_id = body.get("user_id") or user_id
 
             async def receive():
                 return {"type": "http.request", "body": body_bytes}
