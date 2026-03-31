@@ -156,7 +156,7 @@ class SearchMemoryRequest(BaseModel):
     user_id: str = Field(..., description="User identifier")
     agent_id: Optional[str] = Field(None, description="Filter by agent")
     run_id: Optional[str] = Field(None, description="Filter by run")
-    top_k: int = Field(10, description="Max results to return", ge=1, le=100)
+    top_k: int = Field(5, description="Max results to return", ge=1, le=100)
     min_score: float = Field(0.0, description="Minimum relevance score (0.0–1.0); results below this are dropped", ge=0.0, le=1.0)
 
 
@@ -165,8 +165,8 @@ class CombinedSearchRequest(BaseModel):
     query: str = Field(..., description="Natural language query")
     user_id: str = Field(..., description="User identifier")
     agent_id: Optional[str] = Field(None, description="Filter by agent")
-    top_k: int = Field(10, description="Max results to return", ge=1, le=100)
-    recent_days: int = Field(7, description="Number of recent days to include in search", ge=1, le=30)
+    top_k: int = Field(5, description="Max results to return", ge=1, le=100)
+    recent_days: int = Field(3, description="Number of recent days to include in search", ge=1, le=30)
     min_score: float = Field(0.0, description="Minimum relevance score (0.0–1.0); results below this are dropped", ge=0.0, le=1.0)
 
 
