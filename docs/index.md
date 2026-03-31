@@ -35,4 +35,7 @@ features:
   - icon: 🛠️
     title: Simple CLI & REST API
     details: Easy-to-use CLI for all operations, plus a FastAPI REST server for programmatic access
+  - icon: 🔒
+    title: Privacy-First, Self-Hosted
+    details: Fully self-hosted on your own AWS infrastructure. No data leaves your account — telemetry is disabled by default, and all LLM calls go through AWS Bedrock with your own IAM credentials.
 ---
