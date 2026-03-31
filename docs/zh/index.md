@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "mem0 记忆服务"
   text: "AI Agent 的永久记忆层"
-  tagline: "实时记忆捕获、语义召回，每晚 AutoDream 自动沉淀 — 基于 mem0 + AWS"
+  tagline: "实时记忆捕获、语义召回，每晚 AutoDream 自动沉淀 — 基于 mem0、AWS Bedrock、OpenSearch 与 S3 Vectors"
   actions:
     - theme: brand
       text: 快速开始
@@ -24,8 +24,8 @@ features:
     title: AutoDream 记忆沉淀
     details: "每晚 AutoDream 像人类大脑在睡眠中做的那样——把当天的短期记忆巩固为长期知识，悄悄清理不再相关的内容。"
   - icon: 💰
-    title: 低成本向量存储（S3 Vectors）
-    details: 支持 Amazon S3 Vectors 作为向量后端，按实际用量付费，成本极低。同时也支持 OpenSearch。
+    title: 灵活的向量存储后端
+    details: 支持 AWS OpenSearch（默认）和 AWS S3 Vectors 作为向量后端，一个环境变量即可切换。LLM 推理和向量嵌入均运行在 AWS Bedrock 上，数据全程留在你的 AWS 账户内。
   - icon: 🌊
     title: MemoryStream 记忆流
     details: "对话持续流入 mem0——每 5 分钟快照，每 15 分钟提炼。Session 之间，上下文永不丢失。"

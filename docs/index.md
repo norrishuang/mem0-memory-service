@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "mem0 Memory Service for OpenClaw"
   text: "Your AI Agents Never Forget"
-  tagline: "Real-time memory capture, intelligent recall, and nightly AutoDream consolidation — powered by mem0 + AWS"
+  tagline: "Real-time memory capture, intelligent recall, and nightly AutoDream consolidation — powered by mem0, AWS Bedrock, OpenSearch & S3 Vectors"
   actions:
     - theme: brand
       text: Get Started
@@ -22,7 +22,7 @@ features:
     details: "Every night, AutoDream does what human brains do during sleep — consolidates the day's short-term memories into long-term knowledge, and quietly discards what's no longer relevant."
   - icon: 🗄️
     title: Flexible Vector Store
-    details: Supports OpenSearch (default) and AWS S3 Vectors — switch with a single environment variable
+    details: "Supports AWS OpenSearch (default) and AWS S3 Vectors as the vector backend — switch with a single environment variable. LLM inference and embeddings run on AWS Bedrock, keeping everything within your AWS account."
   - icon: 🌊
     title: MemoryStream
     details: "Conversations flow into mem0 continuously — snapshotted every 5 min, digested every 15 min. No context is lost between sessions."
