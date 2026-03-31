@@ -157,6 +157,7 @@ class SearchMemoryRequest(BaseModel):
     agent_id: Optional[str] = Field(None, description="Filter by agent")
     run_id: Optional[str] = Field(None, description="Filter by run")
     top_k: int = Field(10, description="Max results to return", ge=1, le=100)
+    min_score: float = Field(0.0, description="Minimum relevance score (0.0–1.0); results below this are dropped", ge=0.0, le=1.0)
 
 
 class CombinedSearchRequest(BaseModel):
@@ -166,6 +167,7 @@ class CombinedSearchRequest(BaseModel):
     agent_id: Optional[str] = Field(None, description="Filter by agent")
     top_k: int = Field(10, description="Max results to return", ge=1, le=100)
     recent_days: int = Field(7, description="Number of recent days to include in search", ge=1, le=30)
+    min_score: float = Field(0.0, description="Minimum relevance score (0.0–1.0); results below this are dropped", ge=0.0, le=1.0)
 
 
 class UpdateMemoryRequest(BaseModel):
@@ -249,7 +251,14 @@ async def search_memory(req: SearchMemoryRequest):
         results = await loop.run_in_executor(
             _mem0_executor, lambda: memory.search(req.query, **kwargs)
         )
-        return {"status": "ok", "results": results}
+        # Apply min_score filter
+        if isinstance(results, dict):
+            raw = results.get("results", [])
+        else:
+            raw = results or []
+        if req.min_score > 0.0:
+            raw = [r for r in raw if r.get("score", 0.0) >= req.min_score]
+        return {"status": "ok", "results": {"results": raw}}
     except Exception as e:
         logger.error(f"Error searching memory: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -306,8 +315,10 @@ async def search_combined(req: CombinedSearchRequest):
         except Exception:
             pass  # No memories for this day is normal
 
-    # 3. Sort by score
+    # 3. Sort by score, apply min_score filter, then cap at top_k
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    if req.min_score > 0.0:
+        all_results = [r for r in all_results if r.get("score", 0.0) >= req.min_score]
 
     return {"status": "ok", "results": all_results[:req.top_k]}
 

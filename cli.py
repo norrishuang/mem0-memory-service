@@ -59,6 +59,7 @@ def search_memory(args):
         "query": args.query,
         "user_id": args.user,
         "top_k": args.top_k,
+        "min_score": args.min_score,
     }
     if args.agent:
         payload["agent_id"] = args.agent
@@ -169,6 +170,10 @@ def main():
     p_search.add_argument("--run", default=None, help="Filter by specific run ID")
     p_search.add_argument("--query", required=True)
     p_search.add_argument("--top-k", type=int, default=10)
+    p_search.add_argument("--min-score", type=float, default=0.0,
+                          help="Minimum relevance score to include (0.0–1.0). "
+                               "Results below this threshold are dropped. "
+                               "Recommended: 0.3–0.5 to filter low-relevance noise.")
     p_search.add_argument("--combined", action="store_true",
                           help="Combined search: long-term + recent short-term memories")
     p_search.add_argument("--recent-days", type=int, default=7,
