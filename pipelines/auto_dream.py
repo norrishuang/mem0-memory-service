@@ -132,7 +132,11 @@ def get_short_term_memories(agent_id: str, run_id: str) -> list:
 def delete_memory(memory_id: str):
     """删除记忆"""
     try:
-        resp = requests.delete(f"{BASE_URL}/memory/{memory_id}", timeout=10)
+        resp = requests.delete(
+            f"{BASE_URL}/memory/{memory_id}",
+            params={"agent_id": "auto_dream", "user_id": USER_ID},
+            timeout=10,
+        )
         resp.raise_for_status()
     except Exception as e:
         logger.error(f"  ✗ Failed to delete {memory_id}: {e}")

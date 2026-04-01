@@ -104,3 +104,9 @@ def get_mem0_config() -> dict:
             },
         },
     }
+
+
+def replace_llm_with_tracked(memory_instance):
+    """Replace memory.llm with TrackedAWSBedrockLLM (same config, adds token tracking)."""
+    from tracked_llm import TrackedAWSBedrockLLM
+    memory_instance.llm = TrackedAWSBedrockLLM(memory_instance.llm.config)

@@ -21,7 +21,8 @@ from pydantic import BaseModel, Field
 os.environ.setdefault("AWS_REGION", "us-east-1")
 
 from mem0 import Memory
-from config import get_mem0_config, SERVICE_HOST, SERVICE_PORT
+from config import get_mem0_config, replace_llm_with_tracked, SERVICE_HOST, SERVICE_PORT
+from tracked_llm import reset_token_counter, get_token_stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("mem0-service")
@@ -74,7 +75,8 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing mem0 Memory instance...")
     config = get_mem0_config()
     memory = Memory.from_config(config)
-    logger.info("✅ mem0 Memory ready")
+    replace_llm_with_tracked(memory)
+    logger.info("✅ mem0 Memory ready (with token tracking)")
     cleanup_old_audit_logs()
     yield
     logger.info("Shutting down mem0 Memory Service")
@@ -94,13 +96,16 @@ async def audit_log_middleware(request: Request, call_next):
 
     agent_id = "-"
     user_id = "-"
+    # Try query params first (for GET/DELETE requests)
+    agent_id = request.query_params.get("agent_id") or "-"
+    user_id = request.query_params.get("user_id") or "-"
     if request.method == "POST":
         try:
             body_bytes = await request.body()
             if body_bytes:
                 body = json.loads(body_bytes)
-                agent_id = body.get("agent_id", "-") or "-"
-                user_id = body.get("user_id", "-") or "-"
+                agent_id = body.get("agent_id") or agent_id
+                user_id = body.get("user_id") or user_id
 
             async def receive():
                 return {"type": "http.request", "body": body_bytes}
@@ -212,15 +217,37 @@ async def add_memory(req: AddMemoryRequest):
         try:
             loop = asyncio.get_event_loop()
             infer = req.infer  # capture for lambda to avoid late binding
-            if req.messages:
-                result = await loop.run_in_executor(
-                    _mem0_executor, lambda: memory.add(req.messages, infer=infer, **kwargs)
-                )
-            else:
-                result = await loop.run_in_executor(
-                    _mem0_executor, lambda: memory.add(req.text, infer=infer, **kwargs)
-                )
-            return {"status": "ok", "result": result}
+
+            def _add_with_tracking():
+                reset_token_counter()
+                if req.messages:
+                    result = memory.add(req.messages, infer=infer, **kwargs)
+                else:
+                    result = memory.add(req.text, infer=infer, **kwargs)
+                return result, get_token_stats()
+
+            result, token_stats = await loop.run_in_executor(_mem0_executor, _add_with_tracking)
+
+            # Write token usage to audit log
+            if token_stats["llm_calls"] > 0:
+                token_log = {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "type": "token_usage",
+                    "path": "/memory/add",
+                    "agent_id": req.agent_id or "-",
+                    "user_id": req.user_id,
+                    "llm_calls": token_stats["llm_calls"],
+                    "input_tokens": token_stats["input_tokens"],
+                    "output_tokens": token_stats["output_tokens"],
+                    "total_tokens": token_stats["total_tokens"],
+                }
+                try:
+                    with get_audit_log_path().open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(token_log, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+
+            return {"status": "ok", "result": result, "token_usage": token_stats}
         except Exception as e:
             err_str = str(e)
             # event=NONE is normal: mem0's LLM decided no update needed, but
