@@ -34,6 +34,8 @@ vim .env
 | `SERVICE_HOST` | `0.0.0.0` | Service bind address |
 | `SERVICE_PORT` | `8230` | Service port |
 | `MEM0_TELEMETRY` | `true` | **⚠️ 建议关闭。** mem0 默认开启匿名遥测，每次 `add/search/delete` 都向 `us.i.posthog.com` 上报操作元数据（collection 名、LLM 类型、vector store 类型等），**同时每次调用都创建一个新的 PostHog Consumer 线程**，长时间运行后（尤其是 auto_dream 批量处理记忆后）会积累大量僵尸线程（测试中观察到 135 个）。私有部署请设为 `false`。 |
+| `SEARCH_TOP_K` | `5` | Default `top_k` for `/memory/search` and `/memory/search_combined` |
+| `SEARCH_RECENT_DAYS` | `3` | Default recent days window for `/memory/search_combined` |
 
 ## Example `.env`
 
@@ -94,3 +96,33 @@ Two-dimensional isolation using `user_id` + `agent_id`:
 - **user_id** — different users' memories are completely isolated
 - **agent_id** — different agents of the same user manage memories independently
 - Omitting `agent_id` allows cross-agent retrieval
+
+## Token Tracking
+
+The service automatically tracks LLM token consumption for every `/memory/add` call via `TrackedAWSBedrockLLM` — a thin wrapper around `AWSBedrockLLM` that monkey-patches `client.converse()` to capture `inputTokens / outputTokens / totalTokens` from Bedrock Converse API responses.
+
+**How it works:**
+
+1. Before each `memory.add()` call, a global counter (protected by a threading lock) is reset.
+2. Every Bedrock `converse()` call inside mem0 accumulates tokens into the counter.
+3. After `memory.add()` returns, the counter snapshot is:
+   - Returned in the API response as `token_usage`
+   - Written to the daily audit log (`audit_logs/audit-YYYY-MM-DD.jsonl`) as a `type=token_usage` entry
+
+**Analyzing token usage:**
+
+```bash
+# Daily summary
+cat audit_logs/audit-$(date +%Y-%m-%d).jsonl | python3 -c "
+import sys, json
+from collections import defaultdict
+records = [json.loads(l) for l in sys.stdin if l.strip()]
+tok = [r for r in records if r.get('type') == 'token_usage']
+total = sum(r.get('total_tokens', 0) for r in tok)
+print(f'{len(tok)} calls, {total:,} total tokens')
+"
+```
+
+::: tip
+Token tracking adds negligible overhead (a single dict write per Bedrock API call). It requires no extra configuration — it is always enabled when the service starts.
+:::

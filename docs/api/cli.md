@@ -40,12 +40,15 @@ python3 cli.py add --user me --agent dev --run 2026-03-23 \
 # Search long-term memories
 python3 cli.py search --user me --agent dev --query "refactoring" --top-k 5
 
+# Filter low-relevance results (recommended)
+python3 cli.py search --user me --agent dev --query "refactoring" --min-score 0.4
+
 # Search specific date's short-term memories
 python3 cli.py search --user me --agent dev --run 2026-03-23 --query "discussion"
 
-# Combined search (long-term + recent 7 days short-term)
+# Combined search (long-term + recent 3 days short-term)
 python3 cli.py search --user me --agent dev --query "refactoring" \
-  --combined --recent-days 7
+  --combined --recent-days 3
 ```
 
 | Flag | Required | Description |
@@ -53,10 +56,11 @@ python3 cli.py search --user me --agent dev --query "refactoring" \
 | `--user` | ✅ | User identifier |
 | `--agent` | | Agent identifier |
 | `--query` | ✅ | Natural language search query |
-| `--top-k` | | Max results (default: 10) |
+| `--top-k` | | Max results (default: `5`) |
+| `--min-score` | | Minimum similarity score 0.0–1.0 (default: `0.0`). Recommended: `0.3`–`0.5` to cut noise |
 | `--run` | | Filter by specific run ID |
 | `--combined` | | Enable combined search mode |
-| `--recent-days` | | Days to include in combined search (default: 7) |
+| `--recent-days` | | Days to include in combined search (default: `3`) |
 
 ### `list` — List Memories
 
