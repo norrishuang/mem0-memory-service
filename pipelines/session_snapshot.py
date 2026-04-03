@@ -133,10 +133,30 @@ def load_agent_workspaces() -> dict[str, Path]:
             with open(OPENCLAW_CONFIG) as f:
                 config = json.load(f)
 
+            def _remap_workspace(ws: Path) -> Path:
+                """将宿主机绝对路径重映射到容器内的 OPENCLAW_BASE。
+
+                openclaw.json 中记录的是宿主机路径（如 /home/user/.openclaw/workspace-dev）。
+                在 Docker 容器内，宿主机的 ~/.openclaw 被挂载到 OPENCLAW_BASE（如 /openclaw）。
+                此函数找到路径中 .openclaw / clawd 等 openclaw 根目录的位置，
+                将其前缀替换为容器内的 OPENCLAW_BASE。
+                """
+                parts = ws.parts
+                for i, part in enumerate(parts):
+                    if part in ('.openclaw', 'clawd') or part.startswith('.openclaw'):
+                        # 取 .openclaw 之后的相对路径
+                        rel = Path(*parts[i + 1:]) if i + 1 < len(parts) else Path('.')
+                        candidate = OPENCLAW_BASE / rel
+                        if candidate != ws:  # 路径确实变了
+                            logger.debug(f"Remapped workspace {ws} -> {candidate}")
+                        return candidate
+                # 路径中没有 .openclaw，直接返回（宿主机路径，非容器场景）
+                return ws
+
             def _extract(obj):
                 if isinstance(obj, dict):
                     if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
-                        ws = Path(obj['workspace'])
+                        ws = _remap_workspace(Path(obj['workspace']))
                         mapping[obj['id']] = ws
                     for v in obj.values():
                         _extract(v)
