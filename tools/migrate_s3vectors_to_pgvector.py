@@ -36,6 +36,11 @@ def _save_state(done_ids: set):
     Path(STATE_FILE).write_text(json.dumps(sorted(done_ids)))
 
 
+def _state_key(rec: dict) -> str:
+    """Unique key = user_id + id, so same memory id under different users is treated separately."""
+    return f"{rec['user_id']}:{rec['id']}"
+
+
 def dump(source_url: str, user_ids: list[str], output: str):
     """Dump all memories from source service to a JSONL file."""
     count = 0
@@ -73,8 +78,8 @@ def load(target_url: str, input_file: str):
 
     for i, line in enumerate(lines, 1):
         rec = json.loads(line)
-        mid = rec["id"]
-        if mid in done_ids:
+        key = _state_key(rec)
+        if key in done_ids:
             skipped += 1
             continue
 
@@ -94,7 +99,7 @@ def load(target_url: str, input_file: str):
         resp = requests.post(url, json=body, timeout=120)
         resp.raise_for_status()
 
-        done_ids.add(mid)
+        done_ids.add(key)
         loaded += 1
         if loaded % 10 == 0:
             _save_state(done_ids)
