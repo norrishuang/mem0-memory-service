@@ -1,0 +1,8 @@
+# mem0 pipeline cron jobs
+# session_snapshot: every 5 minutes
+*/5 * * * * cd /app && /usr/local/bin/python3 pipelines/session_snapshot.py >> /app/data/snapshot.log 2>&1
+# auto_digest --today: every 15 minutes
+*/15 * * * * cd /app && /usr/local/bin/python3 pipelines/auto_digest.py --today >> /app/data/auto_digest.log 2>&1
+# auto_dream: daily at UTC 02:00
+0 2 * * * cd /app && /usr/local/bin/python3 pipelines/auto_dream.py >> /app/data/auto_dream.log 2>&1
+# empty line required by cron

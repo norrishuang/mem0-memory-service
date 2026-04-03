@@ -15,8 +15,9 @@ from pathlib import Path
 
 # ─── 配置 ───────────────────────────────────────────
 AUDIT_LOG_DIR = Path(__file__).parent.parent / "audit_logs"
-STATE_FILE = Path(__file__).parent.parent / ".audit_shipper_state.json"
-LOG_FILE = Path(__file__).parent.parent / "audit_shipper.log"
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
+STATE_FILE = DATA_DIR / ".audit_shipper_state.json"
+LOG_FILE = DATA_DIR / "audit_shipper.log"
 
 OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST", "vpc-internal-logs-analysis-lr7bsxv3u4szmdeik722czxlki.us-east-1.es.amazonaws.com")
 OPENSEARCH_PORT = int(os.getenv("OPENSEARCH_PORT", "443"))

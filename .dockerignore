@@ -1,0 +1,34 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+*.egg-info/
+dist/
+build/
+node_modules/
+
+# Runtime data
+data/
+audit_logs/
+*.log
+.digest_state.json
+.snapshot_offsets.json
+auto_digest_offset.json
+.audit_shipper_state.json
+.memory_sync_state.json
+memory_sync.log
+
+# Docs build
+docs/.vitepress/dist
+docs/.vitepress/cache
+package-lock.json
+
+# Git
+.git
+.github
+.gitignore
+
+# IDE
+.vscode
+.idea

@@ -30,16 +30,20 @@ import requests
 # 超过此阈值时，日记文件将被按字节裁剪，从尾部保留尽可能多的内容
 MAX_DIARY_BYTES = int(os.environ.get("MAX_DIARY_BYTES", 200 * 1024))   # 200 KB
 
-# 配置：优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
-OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
+# 配置：优先读 OPENCLAW_BASE，其次 OPENCLAW_HOME，最后 ~/.openclaw
+OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_BASE",
+                     os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
 AGENTS_DIR = OPENCLAW_BASE / "agents"
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
+
+# 状态文件目录：DATA_DIR 环境变量，默认项目根目录
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
 
 # mem0 配置
 MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 USER_ID = "boss"
 BJT = timezone(timedelta(hours=8))
-OFFSET_FILE = Path(__file__).parent.parent / ".snapshot_offsets.json"
+OFFSET_FILE = DATA_DIR / ".snapshot_offsets.json"
 
 # 噪音模式：需要过滤的内容
 NOISE_PATTERNS = [
