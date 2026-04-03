@@ -38,4 +38,10 @@ features:
   - icon: 🔒
     title: Privacy-First, Self-Hosted
     details: Fully self-hosted on your own AWS infrastructure. No data leaves your account — telemetry is disabled by default, and all LLM calls go through AWS Bedrock with your own IAM credentials.
+  - icon: 📊
+    title: Token Tracking & Cost Visibility
+    details: Every LLM call is tracked — input/output tokens logged per request, per agent, per user. Identify expensive operations, estimate Bedrock costs, and optimize pipeline frequency with real data.
+  - icon: 🔍
+    title: Built-in Audit Logging
+    details: All API calls written to daily JSONL files in audit_logs/. Plug in Fluent Bit, Vector, CloudWatch, or any file-tailing shipper — no code changes needed. Audit logs rotate daily and auto-expire after 30 days.
 ---
