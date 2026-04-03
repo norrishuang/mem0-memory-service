@@ -42,6 +42,76 @@
 
 **非 EC2 环境**：在 `.env` 中设置 `AWS_ACCESS_KEY_ID` 和 `AWS_SECRET_ACCESS_KEY`。
 
+## 🚀 最快启动：本地 pgvector（无需云服务）
+
+如果只想在本地快速体验 mem0 Memory Service，无需配置 S3 Vectors 或 OpenSearch，可以使用内置的 PostgreSQL + pgvector 后端。只需要 AWS Bedrock（LLM + Embedding）凭证即可。
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/norrishuang/mem0-memory-service.git
+cd mem0-memory-service
+
+# 2. 配置 .env
+cp .env.example .env
+```
+
+编辑 `.env`，最小配置如下：
+
+```env
+# 切换到本地 pgvector
+VECTOR_STORE=pgvector
+
+# PostgreSQL 连接（与 docker-compose 默认值一致）
+PGVECTOR_HOST=mem0-postgres
+PGVECTOR_DB=mem0
+PGVECTOR_USER=mem0
+PGVECTOR_PASSWORD=change-me-in-production
+
+# AWS 区域和 Bedrock 模型（LLM + Embedding 仍然需要）
+AWS_REGION=us-east-1
+LLM_MODEL=us.anthropic.claude-3-5-haiku-20241022-v1:0
+EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
+
+# 你的 OpenClaw 数据目录
+OPENCLAW_BASE=~/.openclaw
+```
+
+```bash
+# 3. 启动所有服务（含 PostgreSQL）
+docker compose --profile pgvector up -d
+
+# 4. 验证
+curl http://localhost:8230/health
+```
+
+将会启动三个容器：
+- `mem0-postgres` — PostgreSQL 17（含 pgvector 扩展）
+- `mem0-api` — FastAPI HTTP 服务，端口 8230
+- `mem0-pipeline` — Cron 定时任务（snapshot / digest / dream）
+
+> **pgvector 数据存储在本地**，通过 Docker named volume（`pgvector_data`）持久化，容器重启后数据不丢失。
+
+### 何时切换到 S3 Vectors 或 OpenSearch
+
+pgvector 非常适合本地开发和单机部署。以下场景建议切换到托管向量数据库：
+
+| 场景 | 推荐后端 |
+|------|----------|
+| 单机、本地开发、快速体验 | **pgvector**（本指南）|
+| AWS 托管、希望无服务器存储 | **S3 Vectors** |
+| 需要全文检索 + 向量混合搜索 | **OpenSearch** |
+| 高可用、多节点 | **OpenSearch** 或 **S3 Vectors** |
+
+如需将数据从 pgvector 迁移到 S3 Vectors，使用内置迁移工具：
+
+```bash
+# 先在 8231 端口启动 S3 Vectors 服务，然后执行：
+python3 tools/migrate_s3vectors_to_pgvector.py migrate \
+  --source-url http://127.0.0.1:8230 \
+  --target-url http://127.0.0.1:8231 \
+  --user-ids boss
+```
+
 ## 快速开始
 
 ```bash

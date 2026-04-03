@@ -42,6 +42,76 @@ The AWS identity used (IAM Role or Access Key) must have the following permissio
 
 **Outside EC2**: Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in `.env`.
 
+## 🚀 Quickest Start: Local pgvector (No Cloud Required)
+
+If you just want to try mem0 Memory Service locally without setting up S3 Vectors or OpenSearch, use the built-in PostgreSQL + pgvector backend. No AWS vector store credentials needed — only AWS Bedrock (LLM + Embedding) is required.
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/norrishuang/mem0-memory-service.git
+cd mem0-memory-service
+
+# 2. Configure .env
+cp .env.example .env
+```
+
+Edit `.env` with minimal settings:
+
+```env
+# Switch to local pgvector
+VECTOR_STORE=pgvector
+
+# PostgreSQL connection (matches docker-compose defaults)
+PGVECTOR_HOST=mem0-postgres
+PGVECTOR_DB=mem0
+PGVECTOR_USER=mem0
+PGVECTOR_PASSWORD=change-me-in-production
+
+# AWS region and Bedrock models (still needed for LLM + Embedding)
+AWS_REGION=us-east-1
+LLM_MODEL=us.anthropic.claude-3-5-haiku-20241022-v1:0
+EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
+
+# Your OpenClaw data directory
+OPENCLAW_BASE=~/.openclaw
+```
+
+```bash
+# 3. Start all services (including PostgreSQL)
+docker compose --profile pgvector up -d
+
+# 4. Verify
+curl http://localhost:8230/health
+```
+
+Three containers will start:
+- `mem0-postgres` — PostgreSQL 17 with pgvector extension
+- `mem0-api` — FastAPI HTTP service on port 8230
+- `mem0-pipeline` — Cron-based pipeline (snapshot / digest / dream)
+
+> **pgvector data is stored locally** in a Docker named volume (`pgvector_data`). It persists across container restarts and is managed by Docker.
+
+### When to switch to S3 Vectors or OpenSearch
+
+pgvector is great for local development and single-machine deployments. Consider switching to a managed vector store when:
+
+| Scenario | Recommended backend |
+|----------|-------------------|
+| Single machine, local dev, quick trial | **pgvector** (this guide) |
+| AWS-hosted, want serverless storage | **S3 Vectors** |
+| Need full-text + vector hybrid search | **OpenSearch** |
+| High-availability, multi-node | **OpenSearch** or **S3 Vectors** |
+
+To migrate data from pgvector to S3 Vectors later, use the built-in migration tool:
+
+```bash
+# Start new service with S3 Vectors on port 8231, then:
+python3 tools/migrate_s3vectors_to_pgvector.py migrate \
+  --source-url http://127.0.0.1:8230 \
+  --target-url http://127.0.0.1:8231 \
+  --user-ids boss
+```
+
 ## Quick Start
 
 ```bash
