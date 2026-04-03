@@ -20,7 +20,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 # Ensure boto3 picks it up
 os.environ.setdefault("AWS_REGION", AWS_REGION)
 
-# Vector Store selection: "opensearch" (default) or "s3vectors"
+# Vector Store selection: "opensearch" (default), "s3vectors", or "pgvector"
 VECTOR_STORE = os.getenv("VECTOR_STORE", "opensearch").lower()
 
 # OpenSearch
@@ -35,6 +35,14 @@ OPENSEARCH_COLLECTION = os.getenv("OPENSEARCH_COLLECTION", "mem0_memories")
 # S3Vectors
 S3VECTORS_BUCKET_NAME = os.getenv("S3VECTORS_BUCKET_NAME", "")
 S3VECTORS_INDEX_NAME = os.getenv("S3VECTORS_INDEX_NAME", "mem0")
+
+# PGVector
+PGVECTOR_HOST = os.getenv("PGVECTOR_HOST", "localhost")
+PGVECTOR_PORT = int(os.getenv("PGVECTOR_PORT", "5432"))
+PGVECTOR_DB = os.getenv("PGVECTOR_DB", "mem0")
+PGVECTOR_USER = os.getenv("PGVECTOR_USER", "mem0")
+PGVECTOR_PASSWORD = os.getenv("PGVECTOR_PASSWORD", "mem0")
+PGVECTOR_COLLECTION = os.getenv("PGVECTOR_COLLECTION", "mem0_memories")
 
 # Embedding
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
@@ -68,6 +76,21 @@ def _get_vector_store_config() -> dict:
                 "embedding_model_dims": EMBEDDING_DIMS,
                 "distance_metric": "cosine",
                 "region_name": AWS_REGION,
+            },
+        }
+    if VECTOR_STORE == "pgvector":
+        return {
+            "provider": "pgvector",
+            "config": {
+                "dbname": PGVECTOR_DB,
+                "collection_name": PGVECTOR_COLLECTION,
+                "embedding_model_dims": EMBEDDING_DIMS,
+                "user": PGVECTOR_USER,
+                "password": PGVECTOR_PASSWORD,
+                "host": PGVECTOR_HOST,
+                "port": PGVECTOR_PORT,
+                "diskann": False,
+                "hnsw": True,
             },
         }
     # Default: opensearch
