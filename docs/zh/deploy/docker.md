@@ -65,7 +65,7 @@ VECTOR_STORE=pgvector
 PGVECTOR_HOST=mem0-postgres
 PGVECTOR_DB=mem0
 PGVECTOR_USER=mem0
-PGVECTOR_PASSWORD=mem0
+PGVECTOR_PASSWORD=change-me-in-production
 
 # AWS 区域和 Bedrock 模型（LLM + Embedding 仍然需要）
 AWS_REGION=us-east-1
