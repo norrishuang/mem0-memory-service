@@ -58,6 +58,24 @@ curl -X POST http://127.0.0.1:8230/memory/add \
 
 \* Either `text` or `messages` is required.
 
+**Response** includes a `token_usage` field with LLM consumption for this call:
+
+```json
+{
+  "results": [...],
+  "token_usage": {
+    "llm_calls": 3,
+    "input_tokens": 2925,
+    "output_tokens": 1419,
+    "total_tokens": 4344
+  }
+}
+```
+
+::: tip
+Token usage is also written to the audit log (`audit_logs/audit-YYYY-MM-DD.jsonl`) as `type=token_usage` entries, enabling daily cost analysis.
+:::
+
 ## Search
 
 ```bash
@@ -66,6 +84,17 @@ curl -X POST http://127.0.0.1:8230/memory/search \
   -d '{"query":"keywords","user_id":"me","agent_id":"dev","top_k":5}'
 ```
 
+**Request body:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | ✅ | Natural language search query |
+| `user_id` | string | ✅ | User identifier |
+| `agent_id` | string | | Agent identifier |
+| `top_k` | int | `5` | Max results to return |
+| `run_id` | string | | Filter by specific run ID |
+| `min_score` | float | `0.0` | Minimum similarity score (0.0–1.0). Recommended: `0.3`–`0.5` to filter low-relevance noise |
+
 ## Combined Search
 
 Searches long-term memory + recent N days of short-term memory, merged and deduplicated.
@@ -73,8 +102,19 @@ Searches long-term memory + recent N days of short-term memory, merged and dedup
 ```bash
 curl -X POST http://127.0.0.1:8230/memory/search_combined \
   -H 'Content-Type: application/json' \
-  -d '{"query":"keywords","user_id":"me","agent_id":"dev","top_k":10,"recent_days":7}'
+  -d '{"query":"keywords","user_id":"me","agent_id":"dev","top_k":5,"recent_days":3}'
 ```
+
+**Request body:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | ✅ | Natural language search query |
+| `user_id` | string | ✅ | User identifier |
+| `agent_id` | string | | Agent identifier |
+| `top_k` | int | `5` | Max results (applied to both long-term and short-term before merge) |
+| `recent_days` | int | `3` | How many recent days of short-term memory to include |
+| `min_score` | float | `0.0` | Minimum similarity score (0.0–1.0). Recommended: `0.3`–`0.5` |
 
 ## List Memories
 
