@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Apply S3Vectors filter format patch (fixes upstream mem0 bug, PR #4554)
+RUN python3 tools/patch_s3vectors_filter.py
+
 RUN mkdir -p /app/data
 
 EXPOSE 8230
