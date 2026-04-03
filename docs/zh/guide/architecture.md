@@ -2,6 +2,59 @@
 
 mem0 Memory Service 是所有 OpenClaw Agent 的中央记忆层。它通过流水线（快照 → 摘要 → 归档）接收会话数据，利用 AWS Bedrock 将其提炼为语义记忆，并在 Agent 启动时按需注入相关上下文。
 
+## 部署架构
+
+```mermaid
+graph TB
+    subgraph Host["宿主机（EC2 / VPS / 本地）"]
+        OC["OpenClaw\n（写入日记文件）"]
+        OC_DIR["~/.openclaw/\n（workspace 目录、日记文件）"]
+        AWS_CFG["~/.aws/\n（凭证，可选）"]
+        CLI["cli.py\n（查询工具，在宿主机运行）"]
+    end
+
+    subgraph DockerNetwork["Docker 网络（mem0-memory-service_default）"]
+        subgraph API["mem0-api 容器"]
+            Server["server.py\n（FastAPI，端口 8230）"]
+            Mem0Lib["mem0 library\n（含 S3Vectors filter patch）"]
+        end
+        subgraph Pipeline["mem0-pipeline 容器"]
+            Cron["cron 守护进程"]
+            Snap["session_snapshot.py\n（*/5 * * * *）"]
+            Digest["auto_digest.py --today\n（*/15 * * * *）"]
+            Dream["auto_dream.py\n（0 2 * * *）"]
+        end
+    end
+
+    subgraph AWS["AWS 服务"]
+        S3V[("S3 Vectors\n（向量存储）")]
+        Bedrock["AWS Bedrock\n（LLM + Embedding）"]
+    end
+
+    OC -->|"写入"| OC_DIR
+    OC_DIR -->|"bind mount\n/openclaw (rw)"| Pipeline
+    AWS_CFG -->|"bind mount\n/root/.aws (ro)"| Pipeline
+
+    CLI -->|"HTTP :8230"| Server
+    OC -->|"HTTP :8230\n（记忆读写）"| Server
+    Pipeline -->|"HTTP mem0-api:8230"| Server
+    Server --> Mem0Lib
+    Mem0Lib -->|"QueryVectors\nPutVectors"| S3V
+    Mem0Lib -->|"InvokeModel"| Bedrock
+
+    API -->|"IAM Role / 凭证"| AWS
+    Pipeline -->|"IAM Role / 凭证"| AWS
+```
+
+> **端口映射**：`0.0.0.0:8230 → 容器:8230`，宿主机上的 `cli.py` 通过 `localhost:8230` 连接。
+>
+> **挂载卷**：
+> - `${OPENCLAW_BASE}:/openclaw` — pipeline 读取宿主机日记文件（读写）
+> - `./data:/app/data` — pipeline 写入 offset 文件和日志
+> - `${AWS_CONFIG_DIR}:/root/.aws` — AWS 凭证（只读，EC2 IAM Role 时可不挂载）
+>
+> **AWS 凭证**：EC2 上两个容器均通过 IMDS 自动使用实例 IAM Role，无需配置。非 EC2 环境在 `.env` 中设置 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`。
+
 ```mermaid
 flowchart TD
     subgraph Agents["OpenClaw Agents"]
