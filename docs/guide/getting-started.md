@@ -54,117 +54,49 @@ OpenClaw Agents (agent1, agent2, ...)
   - If using S3Vectors: `s3vectors:*` on the bucket resource
   - EC2 users: attach an IAM Role to the instance — no Access Key needed
 
-## Installation
+## Deployment
 
-### Method 1: Docker One-Click Install (Recommended)
+Choose the deployment method that fits your setup:
 
-```bash
-git clone https://github.com/norrishuang/mem0-memory-service.git
-cd mem0-memory-service
-./install.sh
-```
+### 🚀 Option A: Local pgvector (Quickest, No Cloud Vector Store)
 
-The install script will interactively guide you through configuration, then automatically:
-1. Check Docker and docker compose availability
-2. Generate `.env` configuration file
-3. Run `docker compose up -d` (builds and starts all containers)
-4. Verify service health
-5. Install OpenClaw Skill
-
-All automation pipelines (session snapshot, digest, memory sync, dream) run inside the Docker pipeline container — no separate timer setup needed.
-
-### Method 2: AI Deploy Prompt
-
-Send the following prompt to your AI assistant to auto-deploy:
-
-> Deploy the **mem0 Memory Service for OpenClaw** for me. Repo: https://github.com/norrishuang/mem0-memory-service
->
-> **Step 1: Clone**
-> ```bash
-> git clone https://github.com/norrishuang/mem0-memory-service.git
-> cd mem0-memory-service
-> ```
->
-> **Step 2: Configure .env**
-> Copy `.env.example` to `.env` and set:
-> - `VECTOR_STORE`: `opensearch` (default) or `s3vectors`
-> - If OpenSearch: set `OPENSEARCH_HOST`, `OPENSEARCH_PORT`, `OPENSEARCH_PASSWORD`
-> - If S3Vectors: set `S3VECTORS_BUCKET_NAME`, `S3VECTORS_INDEX_NAME`, `AWS_REGION`
-> - `OPENCLAW_BASE`: path to your OpenClaw data directory (default `~/.openclaw`)
-> - `EMBEDDING_MODEL`: default `amazon.titan-embed-text-v2:0`
-> - `LLM_MODEL`: default `us.anthropic.claude-haiku-4-5-20251001-v1:0`
->
-> **Step 3: Start with Docker**
-> ```bash
-> docker compose up -d
-> ```
->
-> **Step 4: Verify**
-> ```bash
-> curl http://localhost:8230/health
-> ```
->
-> **Step 5: Install OpenClaw Skill**
-> ```bash
-> mkdir -p ~/.openclaw/skills/mem0-memory
-> cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
-> ```
-> Then enable it in OpenClaw Settings → Skills → mem0-memory.
->
-> **Step 6: Test**
-> ```bash
-> docker compose exec mem0-api python3 cli.py add --user me --agent dev \
->   --text "mem0 memory service deployed successfully" \
->   --metadata '{"category":"experience"}'
-> docker compose exec mem0-api python3 cli.py search --user me --agent dev --query "deploy"
-> ```
-
-### Method 3: systemd (Advanced)
-
-If you prefer running directly on the host without Docker:
+Just want to try it out? Start with the built-in PostgreSQL + pgvector — no S3 Vectors or OpenSearch needed. Only requires AWS Bedrock (LLM + Embedding).
 
 ```bash
 git clone https://github.com/norrishuang/mem0-memory-service.git
 cd mem0-memory-service
-
-# 1. Install dependencies
-pip3 install -r requirements.txt
-
-# 2. Configure
-cp .env.example .env
-vim .env  # Fill in your OpenSearch/S3Vectors and AWS configuration
-
-# 3. Test connectivity
-python3 test_connection.py
-
-# 4. Start the service
-sudo cp systemd/mem0-memory.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-memory.service
-
-# 5. Set up automation timers (run as current user)
-mkdir -p ~/.config/systemd/user/
-
-# Session snapshot — captures conversations every 5 min (cross-session memory bridge)
-cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
-
-# MEMORY.md sync — syncs curated knowledge to long-term memory daily at UTC 01:00
-cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
-
-# Auto digest — distills yesterday's diary into short-term memory daily at UTC 01:30
-cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-
-# Archive — promotes/deletes 7-day-old short-term memories daily at UTC 02:00
-cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
-
-systemctl --user daemon-reload
-systemctl --user enable --now mem0-snapshot.timer
-systemctl --user enable --now mem0-memory-sync.timer
-systemctl --user enable --now mem0-auto-digest.timer
-systemctl --user enable --now mem0-dream.timer
+cp .env.example .env  # Set VECTOR_STORE=pgvector + AWS Bedrock credentials
+docker compose --profile pgvector up -d
 ```
 
-For full systemd details, see [systemd Setup](../deploy/systemd).
+→ [Full guide: Docker + pgvector Quickstart](../deploy/docker#quickest-start-local-pgvector-no-cloud-required)
+
+---
+
+### 🐳 Option B: Docker (Recommended)
+
+Production-ready. Uses Docker Compose with your choice of vector store (S3 Vectors, OpenSearch, or pgvector). All pipelines run as cron jobs inside the container.
+
+```bash
+git clone https://github.com/norrishuang/mem0-memory-service.git
+cd mem0-memory-service
+cp .env.example .env  # Configure VECTOR_STORE + credentials
+docker compose up -d
+```
+
+→ [Full guide: Docker Deployment](../deploy/docker)
+
+---
+
+### ⚙️ Option C: systemd (Advanced)
+
+Run directly on the host without Docker. Suitable for environments where Docker is not available or not preferred.
+
+→ [Full guide: systemd Deployment](../deploy/systemd)
+
+---
+
+> **Not sure which to pick?** Start with **Option A** (pgvector) for a quick local trial. When ready for production, switch to **Option B** with S3 Vectors or OpenSearch. See [When to switch backends](../deploy/docker#when-to-switch-to-s3-vectors-or-opensearch).
 
 ## Enabling the Skill for OpenClaw Agents
 
@@ -187,16 +119,6 @@ Then go to **OpenClaw Settings → Skills** and enable `mem0-memory`.
 > No need to modify individual `AGENTS.md` files. The skill applies to all agents uniformly.
 
 **Want to understand why this works?** See [How It Works](./how-it-works) for the full explanation of the skill system, memory flow, and agent behavior rules.
-
-### Known Issues
-
-If using **S3Vectors** as the vector backend, you must apply a filter format patch before use. See [PATCHES.md](https://github.com/norrishuang/mem0-memory-service/blob/main/PATCHES.md) for details.
-
-```bash
-python3 patch_s3vectors_filter.py
-```
-
-> ⚠️ Re-run the patch after every `pip upgrade mem0ai`.
 
 ## Quick Usage
 

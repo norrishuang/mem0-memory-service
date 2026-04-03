@@ -72,7 +72,7 @@ export default withMermaid(defineConfig({
       {
         text: 'Getting Started',
         items: [
-          { text: 'Introduction', link: '/guide/getting-started' },
+          { text: 'Introduction & Deployment', link: '/guide/getting-started' },
           { text: 'How It Works', link: '/guide/how-it-works' },
           { text: 'Architecture', link: '/guide/architecture' },
           { text: 'Configuration', link: '/guide/configuration' },
