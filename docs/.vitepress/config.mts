@@ -44,6 +44,7 @@ export default withMermaid(defineConfig({
             {
               text: '部署运维',
               items: [
+                { text: 'Docker 部署（推荐）', link: '/zh/deploy/docker' },
                 { text: 'systemd 配置', link: '/zh/deploy/systemd' },
               ]
             },
@@ -89,6 +90,7 @@ export default withMermaid(defineConfig({
       {
         text: 'Deployment',
         items: [
+          { text: 'Docker Setup (Recommended)', link: '/deploy/docker' },
           { text: 'systemd Setup', link: '/deploy/systemd' },
         ]
       },

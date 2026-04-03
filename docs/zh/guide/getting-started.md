@@ -26,7 +26,7 @@ OpenClaw Agents (agent1, agent2, ...)
         ▼
 ┌──────────────────────┐
 │  Memory Service      │  FastAPI + mem0
-│  (systemd managed)   │
+│  (Docker / systemd)  │
 │                      │
 │  分层记忆:           │  长期记忆 (无 run_id)
 │  - 长期: 技术决策、  │  短期记忆 (run_id=日期)
@@ -44,14 +44,17 @@ OpenClaw Agents (agent1, agent2, ...)
 
 ## 前置条件
 
-- **Python 3.9+**
+- **Docker 20.10+** 和 **docker compose** (v2)
 - **OpenSearch** 集群（2.x 或 3.x，需启用 k-NN 插件）或 **AWS S3 Vectors**
 - **AWS Bedrock** 访问权限（或修改 `config.py` 使用其他 LLM/Embedder）
-- **Amazon Bedrock IAM 权限** — 部署服务器需要 `bedrock:InvokeModel` 和 `bedrock:InvokeModelWithResponseStream` 权限。最小 IAM 策略示例参见 [README](https://github.com/norrishuang/mem0-memory-service/blob/main/README.zh.md#amazon-bedrock-权限)。
+- **AWS IAM 权限** — 部署环境需要：
+  - `bedrock:InvokeModel` 和 `bedrock:InvokeModelWithResponseStream`（Embedding 和 LLM 模型）
+  - 如果使用 S3Vectors：`s3vectors:*`（对应 bucket 资源）
+  - EC2 用户：将 IAM Role 附加到实例即可，无需在 .env 中配置 Access Key
 
 ## 安装
 
-### 方法 1：一键安装（推荐）
+### 方法 1：Docker 一键安装（推荐）
 
 ```bash
 git clone https://github.com/norrishuang/mem0-memory-service.git
@@ -60,13 +63,63 @@ cd mem0-memory-service
 ```
 
 安装脚本会交互式引导你填写配置，然后自动：
-1. 安装 Python 依赖
+1. 检查 Docker 和 docker compose 是否可用
 2. 生成 `.env` 配置文件
-3. 测试 OpenSearch 和 Bedrock 连通性
-4. 创建 systemd 服务（开机自启）
-5. 设置所有自动化定时器
+3. 运行 `docker compose up -d`（构建并启动所有容器）
+4. 验证服务健康状态
+5. 安装 OpenClaw Skill
 
-### 方法 2：手动安装
+所有自动化 pipeline（会话快照、digest、记忆同步、dream）都在 Docker pipeline 容器内运行，无需单独配置定时器。
+
+### 方法 2：AI 部署提示词
+
+将以下提示词发送给你的 AI 助手，即可自动完成部署：
+
+> 帮我部署 **mem0 Memory Service for OpenClaw**。代码仓库：https://github.com/norrishuang/mem0-memory-service
+>
+> **步骤 1：克隆**
+> ```bash
+> git clone https://github.com/norrishuang/mem0-memory-service.git
+> cd mem0-memory-service
+> ```
+>
+> **步骤 2：配置 .env**
+> 将 `.env.example` 复制为 `.env` 并设置：
+> - `VECTOR_STORE`：`opensearch`（默认）或 `s3vectors`
+> - 如果用 OpenSearch：设置 `OPENSEARCH_HOST`、`OPENSEARCH_PORT`、`OPENSEARCH_PASSWORD`
+> - 如果用 S3Vectors：设置 `S3VECTORS_BUCKET_NAME`、`S3VECTORS_INDEX_NAME`、`AWS_REGION`
+> - `OPENCLAW_BASE`：OpenClaw 数据目录路径（默认 `~/.openclaw`）
+> - `EMBEDDING_MODEL`：默认 `amazon.titan-embed-text-v2:0`
+> - `LLM_MODEL`：默认 `us.anthropic.claude-haiku-4-5-20251001-v1:0`
+>
+> **步骤 3：Docker 启动**
+> ```bash
+> docker compose up -d
+> ```
+>
+> **步骤 4：验证**
+> ```bash
+> curl http://localhost:8230/health
+> ```
+>
+> **步骤 5：安装 OpenClaw Skill**
+> ```bash
+> mkdir -p ~/.openclaw/skills/mem0-memory
+> cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
+> ```
+> 然后在 OpenClaw 设置 → Skills → mem0-memory 中启用。
+>
+> **步骤 6：测试**
+> ```bash
+> docker compose exec mem0-api python3 cli.py add --user me --agent dev \
+>   --text "mem0 memory service deployed successfully" \
+>   --metadata '{"category":"experience"}'
+> docker compose exec mem0-api python3 cli.py search --user me --agent dev --query "deploy"
+> ```
+
+### 方法 3：systemd（高级/自定义）
+
+如果你更倾向于不使用 Docker，直接在主机上运行：
 
 ```bash
 git clone https://github.com/norrishuang/mem0-memory-service.git
@@ -109,75 +162,7 @@ systemctl --user enable --now mem0-auto-digest.timer
 systemctl --user enable --now mem0-dream.timer
 ```
 
-### 方法 3：一键 AI 部署提示词
-
-将以下提示词发送给你的 AI 助手，即可自动完成部署：
-
-> 帮我部署 **mem0 Memory Service for OpenClaw**。代码仓库：https://github.com/norrishuang/mem0-memory-service
->
-> **步骤 1：克隆并安装**
-> ```bash
-> git clone https://github.com/norrishuang/mem0-memory-service.git
-> cd mem0-memory-service
-> pip3 install -r requirements.txt
-> ```
->
-> **步骤 2：配置 .env**
-> 将 `.env.example` 复制为 `.env` 并设置：
-> - `VECTOR_STORE`：`opensearch`（默认）或 `s3vectors`
-> - 如果用 OpenSearch：设置 `OPENSEARCH_HOST`、`OPENSEARCH_PORT`、`OPENSEARCH_INDEX`
-> - 如果用 S3Vectors：设置 `S3VECTORS_BUCKET_NAME`、`S3VECTORS_INDEX_NAME`、`AWS_REGION`
-> - `EMBEDDING_MODEL`：默认 `amazon.titan-embed-text-v2:0`
-> - `LLM_MODEL`：默认 `us.anthropic.claude-haiku-4-5-20251001-v1:0`
->
-> **步骤 3：（仅 S3Vectors）应用 filter patch**
-> ```bash
-> python3 patch_s3vectors_filter.py
-> ```
-> 这是修复 mem0 上游已知 bug（PR #4554 待合并）。每次 `pip upgrade mem0ai` 后需重新执行。
->
-> **步骤 4：验证连通性**
-> ```bash
-> python3 test_connection.py
-> ```
->
-> **步骤 5：启动记忆服务**
-> ```bash
-> sudo cp systemd/mem0-memory.service /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-memory.service
-> ```
->
-> **步骤 6：设置自动化定时器（以当前用户运行）**
-> ```bash
-> mkdir -p ~/.config/systemd/user/
-> cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
-> cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
-> cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-> cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
-> systemctl --user daemon-reload
-> systemctl --user enable --now mem0-snapshot.timer
-> systemctl --user enable --now mem0-memory-sync.timer
-> systemctl --user enable --now mem0-auto-digest.timer
-> systemctl --user enable --now mem0-dream.timer
-> ```
->
-> **步骤 7：为 OpenClaw Agent 启用 mem0-memory Skill**
->
-> 将 skill 复制到 OpenClaw skills 目录：
-> ```bash
-> mkdir -p ~/.openclaw/skills/mem0-memory
-> cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
-> ```
-> 然后在 OpenClaw 设置 → Skills → mem0-memory 中启用。
->
-> **步骤 8：测试写入和搜索**
-> ```bash
-> python3 cli.py add --user me --agent dev \
->   --text "mem0 memory service deployed successfully" \
->   --metadata '{"category":"experience"}'
-> python3 cli.py search --user me --agent dev --query "deploy"
-> ```
+完整 systemd 部署说明请参见 [systemd 配置](../deploy/systemd)。
 
 ## 为 OpenClaw Agent 启用 Skill
 
