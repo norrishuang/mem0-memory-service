@@ -2,6 +2,59 @@
 
 The mem0 Memory Service acts as the central memory layer for all OpenClaw agents. It receives session data through a pipeline (snapshot → digest → dream), distills it into semantic memories using AWS Bedrock, and serves relevant context back to agents on demand.
 
+## Deployment Architecture
+
+```mermaid
+graph TB
+    subgraph Host["Host Machine (EC2 / VPS / Local)"]
+        OC["OpenClaw\n(writes diary files)"]
+        OC_DIR["~/.openclaw/\n(workspace dirs, diary files)"]
+        AWS_CFG["~/.aws/\n(credentials, optional)"]
+        CLI["cli.py\n(query tool, runs on host)"]
+    end
+
+    subgraph DockerNetwork["Docker Network (mem0-memory-service_default)"]
+        subgraph API["mem0-api container"]
+            Server["server.py\n(FastAPI, port 8230)"]
+            Mem0Lib["mem0 library\n(+ S3Vectors filter patch)"]
+        end
+        subgraph Pipeline["mem0-pipeline container"]
+            Cron["cron daemon"]
+            Snap["session_snapshot.py\n(*/5 * * * *)"]
+            Digest["auto_digest.py --today\n(*/15 * * * *)"]
+            Dream["auto_dream.py\n(0 2 * * *)"]
+        end
+    end
+
+    subgraph AWS["AWS Services"]
+        S3V[("S3 Vectors\n(vector store)")]
+        Bedrock["AWS Bedrock\n(LLM + Embedding)"]
+    end
+
+    OC -->|"writes"| OC_DIR
+    OC_DIR -->|"bind mount\n/openclaw (rw)"| Pipeline
+    AWS_CFG -->|"bind mount\n/root/.aws (ro)"| Pipeline
+
+    CLI -->|"HTTP :8230"| Server
+    OC -->|"HTTP :8230\n(memory read/write)"| Server
+    Pipeline -->|"HTTP mem0-api:8230"| Server
+    Server --> Mem0Lib
+    Mem0Lib -->|"QueryVectors\nPutVectors"| S3V
+    Mem0Lib -->|"InvokeModel"| Bedrock
+
+    API -->|"IAM Role / credentials"| AWS
+    Pipeline -->|"IAM Role / credentials"| AWS
+```
+
+> **Port mapping**: `0.0.0.0:8230 → container:8230`. The `cli.py` on the host connects via `localhost:8230`.
+>
+> **Volume mounts**:
+> - `${OPENCLAW_BASE}:/openclaw` — pipeline reads host diary files (read-write)
+> - `./data:/app/data` — pipeline writes offset files and logs
+> - `${AWS_CONFIG_DIR}:/root/.aws` — AWS credentials (read-only, optional when using IAM Role)
+>
+> **AWS credentials**: On EC2, both containers use the instance IAM Role via IMDS automatically. Outside EC2, set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `.env`.
+
 ```mermaid
 flowchart TD
     subgraph Agents["OpenClaw Agents"]

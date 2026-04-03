@@ -26,7 +26,7 @@ OpenClaw Agents (agent1, agent2, ...)
         ▼
 ┌──────────────────────┐
 │  Memory Service      │  FastAPI + mem0
-│  (systemd managed)   │
+│  (Docker / systemd)  │
 │                      │
 │  Tiered Memory:      │  Long-term (no run_id)
 │  - Long: tech        │  Short-term (run_id=date)
@@ -46,14 +46,17 @@ OpenClaw Agents (agent1, agent2, ...)
 
 ## Prerequisites
 
-- **Python 3.9+**
+- **Docker 20.10+** and **docker compose** (v2)
 - **OpenSearch** cluster (2.x or 3.x, k-NN plugin required) or **AWS S3 Vectors**
 - **AWS Bedrock** access (or modify `config.py` for other LLM/Embedder providers)
-- **Amazon Bedrock IAM permissions** — the deployment server needs `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` for the Embedding and LLM models. See [README](https://github.com/norrishuang/mem0-memory-service#amazon-bedrock-permissions) for the minimum IAM policy example.
+- **AWS IAM permissions** — the deployment environment needs:
+  - `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` for the Embedding and LLM models
+  - If using S3Vectors: `s3vectors:*` on the bucket resource
+  - EC2 users: attach an IAM Role to the instance — no Access Key needed
 
 ## Installation
 
-### Method 1: One-Click Install (Recommended)
+### Method 1: Docker One-Click Install (Recommended)
 
 ```bash
 git clone https://github.com/norrishuang/mem0-memory-service.git
@@ -62,13 +65,63 @@ cd mem0-memory-service
 ```
 
 The install script will interactively guide you through configuration, then automatically:
-1. Install Python dependencies
+1. Check Docker and docker compose availability
 2. Generate `.env` configuration file
-3. Test OpenSearch and Bedrock connectivity
-4. Create systemd service (auto-start on boot)
-5. Set up all automation timers
+3. Run `docker compose up -d` (builds and starts all containers)
+4. Verify service health
+5. Install OpenClaw Skill
 
-### Method 2: Manual Installation
+All automation pipelines (session snapshot, digest, memory sync, dream) run inside the Docker pipeline container — no separate timer setup needed.
+
+### Method 2: AI Deploy Prompt
+
+Send the following prompt to your AI assistant to auto-deploy:
+
+> Deploy the **mem0 Memory Service for OpenClaw** for me. Repo: https://github.com/norrishuang/mem0-memory-service
+>
+> **Step 1: Clone**
+> ```bash
+> git clone https://github.com/norrishuang/mem0-memory-service.git
+> cd mem0-memory-service
+> ```
+>
+> **Step 2: Configure .env**
+> Copy `.env.example` to `.env` and set:
+> - `VECTOR_STORE`: `opensearch` (default) or `s3vectors`
+> - If OpenSearch: set `OPENSEARCH_HOST`, `OPENSEARCH_PORT`, `OPENSEARCH_PASSWORD`
+> - If S3Vectors: set `S3VECTORS_BUCKET_NAME`, `S3VECTORS_INDEX_NAME`, `AWS_REGION`
+> - `OPENCLAW_BASE`: path to your OpenClaw data directory (default `~/.openclaw`)
+> - `EMBEDDING_MODEL`: default `amazon.titan-embed-text-v2:0`
+> - `LLM_MODEL`: default `us.anthropic.claude-haiku-4-5-20251001-v1:0`
+>
+> **Step 3: Start with Docker**
+> ```bash
+> docker compose up -d
+> ```
+>
+> **Step 4: Verify**
+> ```bash
+> curl http://localhost:8230/health
+> ```
+>
+> **Step 5: Install OpenClaw Skill**
+> ```bash
+> mkdir -p ~/.openclaw/skills/mem0-memory
+> cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
+> ```
+> Then enable it in OpenClaw Settings → Skills → mem0-memory.
+>
+> **Step 6: Test**
+> ```bash
+> docker compose exec mem0-api python3 cli.py add --user me --agent dev \
+>   --text "mem0 memory service deployed successfully" \
+>   --metadata '{"category":"experience"}'
+> docker compose exec mem0-api python3 cli.py search --user me --agent dev --query "deploy"
+> ```
+
+### Method 3: systemd (Advanced)
+
+If you prefer running directly on the host without Docker:
 
 ```bash
 git clone https://github.com/norrishuang/mem0-memory-service.git
@@ -111,75 +164,7 @@ systemctl --user enable --now mem0-auto-digest.timer
 systemctl --user enable --now mem0-dream.timer
 ```
 
-### Method 3: One-Line AI Deploy Prompt
-
-Send the following prompt to your AI assistant to auto-deploy:
-
-> Deploy the **mem0 Memory Service for OpenClaw** for me. Repo: https://github.com/norrishuang/mem0-memory-service
->
-> **Step 1: Clone and install**
-> ```bash
-> git clone https://github.com/norrishuang/mem0-memory-service.git
-> cd mem0-memory-service
-> pip3 install -r requirements.txt
-> ```
->
-> **Step 2: Configure .env**
-> Copy `.env.example` to `.env` and set:
-> - `VECTOR_STORE`: `opensearch` (default) or `s3vectors`
-> - If OpenSearch: set `OPENSEARCH_HOST`, `OPENSEARCH_PORT`, `OPENSEARCH_INDEX`
-> - If S3Vectors: set `S3VECTORS_BUCKET_NAME`, `S3VECTORS_INDEX_NAME`, `AWS_REGION`
-> - `EMBEDDING_MODEL`: default `amazon.titan-embed-text-v2:0`
-> - `LLM_MODEL`: default `us.anthropic.claude-haiku-4-5-20251001-v1:0`
->
-> **Step 3: (S3Vectors only) Apply the filter patch**
-> ```bash
-> python3 patch_s3vectors_filter.py
-> ```
-> This patches a known upstream mem0 bug (PR #4554 pending). Re-run after `pip upgrade mem0ai`.
->
-> **Step 4: Verify connectivity**
-> ```bash
-> python3 test_connection.py
-> ```
->
-> **Step 5: Start the memory service**
-> ```bash
-> sudo cp systemd/mem0-memory.service /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-memory.service
-> ```
->
-> **Step 6: Set up automation timers (as current user)**
-> ```bash
-> mkdir -p ~/.config/systemd/user/
-> cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
-> cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
-> cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-> cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
-> systemctl --user daemon-reload
-> systemctl --user enable --now mem0-snapshot.timer
-> systemctl --user enable --now mem0-memory-sync.timer
-> systemctl --user enable --now mem0-auto-digest.timer
-> systemctl --user enable --now mem0-dream.timer
-> ```
->
-> **Step 7: Enable the mem0-memory Skill in OpenClaw**
->
-> Copy the skill to your OpenClaw skills directory:
-> ```bash
-> mkdir -p ~/.openclaw/skills/mem0-memory
-> cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
-> ```
-> Then enable it in OpenClaw Settings → Skills → mem0-memory.
->
-> **Step 8: Test write and search**
-> ```bash
-> python3 cli.py add --user me --agent dev \
->   --text "mem0 memory service deployed successfully" \
->   --metadata '{"category":"experience"}'
-> python3 cli.py search --user me --agent dev --query "deploy"
-> ```
+For full systemd details, see [systemd Setup](../deploy/systemd).
 
 ## Enabling the Skill for OpenClaw Agents
 

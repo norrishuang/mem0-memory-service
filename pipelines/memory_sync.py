@@ -17,11 +17,14 @@ import requests
 
 # ─── Configuration ───
 
-OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
+OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_BASE",
+                     os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 
-STATE_FILE = Path(__file__).parent.parent / ".memory_sync_state.json"
-LOG_FILE = Path(__file__).parent.parent / "memory_sync.log"
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
+
+STATE_FILE = DATA_DIR / ".memory_sync_state.json"
+LOG_FILE = DATA_DIR / "memory_sync.log"
 
 MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 USER_ID = "boss"

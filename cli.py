@@ -14,11 +14,12 @@ Usage:
 """
 import argparse
 import json
+import os
 import sys
 
 import requests
 
-BASE_URL = "http://127.0.0.1:8230"
+BASE_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 
 
 def add_memory(args):

@@ -22,12 +22,15 @@ import config as app_config
 
 # ─── Configuration ───
 
-WORKSPACE_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
+WORKSPACE_BASE = Path(os.environ.get("OPENCLAW_BASE",
+                      os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
 OPENCLAW_CONFIG = WORKSPACE_BASE / "openclaw.json"
 
-LOG_FILE = Path(__file__).parent.parent / "auto_digest.log"
-OFFSET_FILE = Path(__file__).parent.parent / "auto_digest_offset.json"
-MEM0_API_URL = "http://127.0.0.1:8230/memory/add"
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
+
+LOG_FILE = DATA_DIR / "auto_digest.log"
+OFFSET_FILE = DATA_DIR / "auto_digest_offset.json"
+MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230/memory/add")
 # Digest LLM config — read from app_config (supports .env override)
 BEDROCK_MODEL_ID = app_config.DIGEST_LLM_MODEL
 AWS_REGION = app_config.DIGEST_LLM_REGION

@@ -29,6 +29,7 @@ export default withMermaid(defineConfig({
                 { text: '工作原理', link: '/zh/guide/how-it-works' },
                 { text: '系统架构', link: '/zh/guide/architecture' },
                 { text: '配置说明', link: '/zh/guide/configuration' },
+                { text: '审计日志与 Token 追踪', link: '/zh/guide/audit-logging' },
                 { text: '已知问题与 Patch', link: '/zh/guide/known-issues' },
                 { text: '设计决策记录', link: '/zh/guide/design-decisions' },
               ]
@@ -44,6 +45,7 @@ export default withMermaid(defineConfig({
             {
               text: '部署运维',
               items: [
+                { text: 'Docker 部署（推荐）', link: '/zh/deploy/docker' },
                 { text: 'systemd 配置', link: '/zh/deploy/systemd' },
               ]
             },
@@ -74,6 +76,7 @@ export default withMermaid(defineConfig({
           { text: 'How It Works', link: '/guide/how-it-works' },
           { text: 'Architecture', link: '/guide/architecture' },
           { text: 'Configuration', link: '/guide/configuration' },
+          { text: 'Audit Logging & Token Tracking', link: '/guide/audit-logging' },
           { text: 'Known Issues & Patches', link: '/guide/known-issues' },
           { text: 'Design Decisions', link: '/guide/design-decisions' },
         ]
@@ -89,6 +92,7 @@ export default withMermaid(defineConfig({
       {
         text: 'Deployment',
         items: [
+          { text: 'Docker Setup (Recommended)', link: '/deploy/docker' },
           { text: 'systemd Setup', link: '/deploy/systemd' },
         ]
       },

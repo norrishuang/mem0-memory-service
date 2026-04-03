@@ -20,7 +20,7 @@ Agents can automatically store and retrieve memories through conversations, with
 
 - **Cost-Optimized Vector Storage (S3 Vectors)** — Supports Amazon S3 Vectors as a vector backend, offering dramatically lower cost than self-managed OpenSearch clusters with pay-per-use pricing. OpenSearch is also supported for existing-cluster scenarios.
 
-- **Fully Automated Operations** — systemd timers handle the entire lifecycle: session snapshots every 5 minutes, MEMORY.md sync at UTC 01:00, incremental digest every 15 minutes, nightly dream consolidation at UTC 02:00. Zero manual intervention; services auto-recover on restart.
+- **Fully Automated Operations** — Docker pipeline container (or systemd timers) handles the entire lifecycle: session snapshots every 5 minutes, MEMORY.md sync at UTC 01:00, incremental digest every 15 minutes, nightly dream consolidation at UTC 02:00. Zero manual intervention; services auto-recover on restart.
 
 ## Design Philosophy
 
@@ -54,7 +54,7 @@ OpenClaw Agents (agent1, agent2, ...)
         ▼
 ┌──────────────────────┐
 │  Memory Service      │  FastAPI + mem0
-│  (systemd managed)   │
+│  (Docker / systemd)  │
 │                      │  ┌─────────────────────────┐
 │  Tiered Memory:      │  │ Long-term (no run_id)   │
 │  - Long: tech        │  │ Short-term (run_id=date) │
@@ -99,8 +99,8 @@ OpenClaw Agents (agent1, agent2, ...)
 
 ## Prerequisites
 
-- **Python 3.9+**
-- **OpenSearch** cluster (2.x or 3.x, k-NN plugin required)
+- **Docker 20.10+** and **docker compose** (v2) — for recommended Docker deployment
+- **OpenSearch** cluster (2.x or 3.x, k-NN plugin required) or **AWS S3 Vectors**
 - **AWS Bedrock** access (or modify config.py to use OpenAI or other LLM/Embedder)
 - **OpenClaw** installed and running
 
@@ -142,111 +142,35 @@ This service uses Amazon Bedrock to invoke LLM (for memory extraction) and Embed
 
 ## Quick Deployment
 
-### Method 1: One-Click Install (Recommended)
+### Method 1: Docker Install (Recommended)
 
 ```bash
 git clone https://github.com/norrishuang/mem0-memory-service.git
 cd mem0-memory-service
-./install.sh
-```
-
-The install script will interactively guide you through OpenSearch connection details, AWS region, and other configurations, then automatically:
-1. Install Python dependencies
-2. Generate `.env` configuration file
-3. Test OpenSearch and Bedrock connectivity
-4. Create systemd service (auto-start on boot)
-5. Install OpenClaw Skill
-
-### Method 2: Manual Installation
-
-```bash
-git clone https://github.com/norrishuang/mem0-memory-service.git
-cd mem0-memory-service
-
-# 1. Install dependencies
-pip3 install -r requirements.txt
-
-# 2. Configure
 cp .env.example .env
-vim .env  # Fill in your OpenSearch and AWS configuration
-
-# 3. Test connectivity
-python3 test_connection.py
-
-# 4. Start the service
-python3 server.py
-
-# 5. (Optional) Set up systemd auto-start
-sudo cp mem0-memory.service /etc/systemd/system/
-# Edit the service file to update User/WorkingDirectory/EnvironmentFile paths
-sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-memory
-
-# 6. Install OpenClaw Skill
-mkdir -p ~/.openclaw/skills/mem0-memory
-cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
-# Edit SKILL.md, replace $MEM0_HOME with the actual installation path
+# Edit .env: set VECTOR_STORE, OpenSearch/S3Vectors config, OPENCLAW_BASE
+docker compose up -d
 ```
 
-### Method 3: One-Line AI Deploy Prompt
+> 💡 EC2 users: attach an IAM Role to the instance — no Access Key needed in `.env`.
 
-Send the following prompt to your AI assistant to auto-deploy:
+Or use the interactive installer: `./install.sh` (checks Docker, guides you through `.env` config, starts containers, verifies health).
 
-> Deploy the **mem0 Memory Service for OpenClaw** for me. Repo: https://github.com/norrishuang/mem0-memory-service
->
-> **Step 1: Clone and install**
-> ```bash
-> git clone https://github.com/norrishuang/mem0-memory-service.git
-> cd mem0-memory-service
-> pip3 install -r requirements.txt
-> ```
->
-> **Step 2: Configure .env**
-> Copy `.env.example` to `.env` and set:
-> - `VECTOR_STORE`: `opensearch` (default) or `s3vectors`
-> - If OpenSearch: set `OPENSEARCH_HOST`, `OPENSEARCH_PORT`, `OPENSEARCH_INDEX`
-> - If S3Vectors: set `S3VECTORS_BUCKET_NAME`, `S3VECTORS_INDEX_NAME`, `AWS_REGION`
-> - `EMBEDDING_MODEL`: default `amazon.titan-embed-text-v2:0`
-> - `LLM_MODEL`: default `us.anthropic.claude-haiku-4-5-20251001-v1:0`
->
-> **Step 3: (S3Vectors only) Apply the filter patch**
-> ```bash
-> python3 patch_s3vectors_filter.py
-> ```
-> This patches a known upstream mem0 bug (PR #4554 pending). Re-run after `pip upgrade mem0`.
->
-> **Step 4: Verify connectivity**
-> ```bash
-> python3 test_connection.py
-> ```
->
-> **Step 5: Set up systemd service (auto-start)**
-> ```bash
-> sudo cp mem0-memory.service /etc/systemd/system/
-> sudo systemctl daemon-reload
-> sudo systemctl enable --now mem0-memory.service
-> ```
->
-> **Step 6: Set up memory automation timers (run as current user)**
->
-> All four timers run as the current user (not root):
-> ```bash
-> mkdir -p ~/.config/systemd/user/
-> cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
-> cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
-> cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-> systemctl --user daemon-reload
-> systemctl --user enable --now mem0-snapshot.timer
-> systemctl --user enable --now mem0-memory-sync.timer
-> systemctl --user enable --now mem0-auto-digest.timer
-> ```
-> Timer schedule: snapshot every 5 min → digest every 15 min → memory-sync UTC 01:00 → auto-dream UTC 02:00
->
-> **Step 7: Test write and search**
-> ```bash
-> python3 cli.py add --user me --agent agent1 --text "mem0 memory service deployed successfully" --metadata '{"category":"experience"}'
-> python3 cli.py search --user me --agent agent1 --query "deploy"
-> ```
+All automation pipelines (session snapshot, digest, memory sync, dream) run inside the Docker pipeline container — no separate timer setup needed.
+
+### Method 2: systemd (Advanced)
+
+For host-native deployment without Docker, see [systemd Setup](./docs/deploy/systemd.md).
+
+```bash
+git clone https://github.com/norrishuang/mem0-memory-service.git
+cd mem0-memory-service
+pip3 install -r requirements.txt
+cp .env.example .env
+vim .env
+python3 test_connection.py
+python3 server.py
+```
 
 ## Usage
 

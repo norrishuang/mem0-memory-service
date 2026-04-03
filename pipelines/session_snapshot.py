@@ -30,16 +30,20 @@ import requests
 # 超过此阈值时，日记文件将被按字节裁剪，从尾部保留尽可能多的内容
 MAX_DIARY_BYTES = int(os.environ.get("MAX_DIARY_BYTES", 200 * 1024))   # 200 KB
 
-# 配置：优先读环境变量 OPENCLAW_HOME，其次 ~/.openclaw
-OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
+# 配置：优先读 OPENCLAW_BASE，其次 OPENCLAW_HOME，最后 ~/.openclaw
+OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_BASE",
+                     os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
 AGENTS_DIR = OPENCLAW_BASE / "agents"
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
+
+# 状态文件目录：DATA_DIR 环境变量，默认项目根目录
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
 
 # mem0 配置
 MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 USER_ID = "boss"
 BJT = timezone(timedelta(hours=8))
-OFFSET_FILE = Path(__file__).parent.parent / ".snapshot_offsets.json"
+OFFSET_FILE = DATA_DIR / ".snapshot_offsets.json"
 
 # 噪音模式：需要过滤的内容
 NOISE_PATTERNS = [
@@ -129,10 +133,30 @@ def load_agent_workspaces() -> dict[str, Path]:
             with open(OPENCLAW_CONFIG) as f:
                 config = json.load(f)
 
+            def _remap_workspace(ws: Path) -> Path:
+                """将宿主机绝对路径重映射到容器内的 OPENCLAW_BASE。
+
+                openclaw.json 中记录的是宿主机路径（如 /home/user/.openclaw/workspace-dev）。
+                在 Docker 容器内，宿主机的 ~/.openclaw 被挂载到 OPENCLAW_BASE（如 /openclaw）。
+                此函数找到路径中 .openclaw / clawd 等 openclaw 根目录的位置，
+                将其前缀替换为容器内的 OPENCLAW_BASE。
+                """
+                parts = ws.parts
+                for i, part in enumerate(parts):
+                    if part in ('.openclaw', 'clawd') or part.startswith('.openclaw'):
+                        # 取 .openclaw 之后的相对路径
+                        rel = Path(*parts[i + 1:]) if i + 1 < len(parts) else Path('.')
+                        candidate = OPENCLAW_BASE / rel
+                        if candidate != ws:  # 路径确实变了
+                            logger.debug(f"Remapped workspace {ws} -> {candidate}")
+                        return candidate
+                # 路径中没有 .openclaw，直接返回（宿主机路径，非容器场景）
+                return ws
+
             def _extract(obj):
                 if isinstance(obj, dict):
                     if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
-                        ws = Path(obj['workspace'])
+                        ws = _remap_workspace(Path(obj['workspace']))
                         mapping[obj['id']] = ws
                     for v in obj.values():
                         _extract(v)

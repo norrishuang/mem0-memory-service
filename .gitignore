@@ -26,3 +26,6 @@ auto_digest_offset.json
 .audit_shipper_state.json
 audit_shipper.log
 memory_sync.log
+
+# Docker runtime data
+data/

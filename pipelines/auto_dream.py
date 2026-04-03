@@ -19,15 +19,17 @@ from pathlib import Path
 
 # ─── Configuration ───
 
-BASE_URL = "http://127.0.0.1:8230"
+BASE_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 USER_ID = "boss"
 ARCHIVE_DAYS = 7
 MAX_MEMORIES_PER_RUN = 300
 MAX_CONSECUTIVE_ERRORS = 3
 INTER_MEMORY_SLEEP = 0.2  # mem0 串行处理，瓶颈在 Bedrock LLM (~6s/条)，0.2s 足够防止请求堆积
-LOG_FILE = Path(__file__).parent.parent / "auto_dream.log"
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
+LOG_FILE = DATA_DIR / "auto_dream.log"
 
-OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
+OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_BASE",
+                     os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 
 # ─── Setup Logging ───

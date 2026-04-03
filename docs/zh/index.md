@@ -38,4 +38,10 @@ features:
   - icon: 🔒
     title: 隐私优先，完全自托管
     details: 完全部署在你自己的 AWS 基础设施上，数据永不离开你的账户。遥测默认关闭，所有 LLM 调用通过 AWS Bedrock 走你自己的 IAM 凭证。
+  - icon: 📊
+    title: Token 追踪与成本可视化
+    details: 每次 LLM 调用都被追踪——按请求、按 Agent、按用户记录输入/输出 token 数。识别高成本操作，估算 Bedrock 费用，用真实数据优化 pipeline 频率。
+  - icon: 🔍
+    title: 内置审计日志
+    details: 所有 API 调用写入 audit_logs/ 目录下的每日 JSONL 文件。接入 Fluent Bit、Vector、CloudWatch 或任何支持文件 tail 的采集工具，无需修改代码。日志按天滚动，30 天后自动过期。
 ---

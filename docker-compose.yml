@@ -1,0 +1,42 @@
+services:
+  mem0-api:
+    build: .
+    container_name: mem0-api
+    restart: unless-stopped
+    # Use host network so container can access EC2 IMDS (169.254.169.254) for IAM Role credentials
+    # Remove network_mode and uncomment ports if running outside EC2 (use AWS_ACCESS_KEY_ID instead)
+
+    ports:
+      - "${SERVICE_PORT:-8230}:8230"
+    volumes:
+      - ./data:/app/data
+      - ./audit_logs:/app/audit_logs
+    env_file:
+      - .env
+    environment:
+      - DATA_DIR=/app/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8230/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  mem0-pipeline:
+    build: .
+    container_name: mem0-pipeline
+    restart: unless-stopped
+    entrypoint: ["/app/docker/entrypoint-pipeline.sh"]
+    volumes:
+      - ${OPENCLAW_BASE:-~/.openclaw}:/openclaw:rw
+      - ./data:/app/data
+      - ${AWS_CONFIG_DIR:-~/.aws}:/root/.aws:ro
+    env_file:
+      - .env
+    environment:
+      - OPENCLAW_BASE=/openclaw
+      - DATA_DIR=/app/data
+      - MEM0_API_URL=http://mem0-api:8230
+    depends_on:
+      mem0-api:
+        condition: service_healthy

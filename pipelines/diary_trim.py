@@ -34,7 +34,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # ── 配置 ──────────────────────────────────────────────────────────────────────
-OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw"))
+OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_BASE",
+                     os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 BJT = timezone(timedelta(hours=8))
 
