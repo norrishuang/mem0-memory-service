@@ -111,9 +111,21 @@ On every heartbeat tick, the agent performs memory maintenance in order:
              (infer=True)          (infer=True) + delete
 ```
 
-## Daily Automation Timeline
+## Deployment: Docker vs. systemd
 
-All automation runs as systemd user timers:
+The memory pipeline scripts (`session_snapshot`, `auto_digest`, `auto_dream`, `memory_sync`) run identically regardless of deployment method. Only the process manager differs:
+
+| | Docker (recommended) | systemd |
+|---|---|---|
+| **API server** | `mem0-api` container | systemd service |
+| **Pipeline runner** | `mem0-pipeline` container (cron) | systemd user timers |
+| **Diary file access** | via bind mount `~/.openclaw → /openclaw` | direct filesystem |
+| **Patch management** | automatic at build time | manual `python3 tools/patch_s3vectors_filter.py` |
+| **Restart on crash** | `restart: unless-stopped` | systemd `Restart=on-failure` |
+
+For deployment details, see [Docker Setup](../deploy/docker) or [systemd Setup](../deploy/systemd).
+
+## Daily Automation Timeline
 
 | Time (UTC) | Script | What it does |
 |-----------|--------|--------------|
@@ -121,6 +133,8 @@ All automation runs as systemd user timers:
 | Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=True, mem0 handles dedup) |
 | 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Step 1: yesterday diary → mem0 long-term (infer=True); Step 2: 7-day-old short-term → re-add to long-term (infer=True) then delete |
+
+> In Docker deployments, these scripts run as cron jobs inside the `mem0-pipeline` container. In systemd deployments, they run as user timers. The schedule and behavior are identical regardless of deployment method.
 
 ## auto_digest Mode
 
