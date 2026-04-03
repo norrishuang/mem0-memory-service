@@ -52,117 +52,49 @@ OpenClaw Agents (agent1, agent2, ...)
   - 如果使用 S3Vectors：`s3vectors:*`（对应 bucket 资源）
   - EC2 用户：将 IAM Role 附加到实例即可，无需在 .env 中配置 Access Key
 
-## 安装
+## 部署方式
 
-### 方法 1：Docker 一键安装（推荐）
+根据你的环境选择合适的部署方式：
 
-```bash
-git clone https://github.com/norrishuang/mem0-memory-service.git
-cd mem0-memory-service
-./install.sh
-```
+### 🚀 方式 A：本地 pgvector（最快，无需云端向量数据库）
 
-安装脚本会交互式引导你填写配置，然后自动：
-1. 检查 Docker 和 docker compose 是否可用
-2. 生成 `.env` 配置文件
-3. 运行 `docker compose up -d`（构建并启动所有容器）
-4. 验证服务健康状态
-5. 安装 OpenClaw Skill
-
-所有自动化 pipeline（会话快照、digest、记忆同步、dream）都在 Docker pipeline 容器内运行，无需单独配置定时器。
-
-### 方法 2：AI 部署提示词
-
-将以下提示词发送给你的 AI 助手，即可自动完成部署：
-
-> 帮我部署 **mem0 Memory Service for OpenClaw**。代码仓库：https://github.com/norrishuang/mem0-memory-service
->
-> **步骤 1：克隆**
-> ```bash
-> git clone https://github.com/norrishuang/mem0-memory-service.git
-> cd mem0-memory-service
-> ```
->
-> **步骤 2：配置 .env**
-> 将 `.env.example` 复制为 `.env` 并设置：
-> - `VECTOR_STORE`：`opensearch`（默认）或 `s3vectors`
-> - 如果用 OpenSearch：设置 `OPENSEARCH_HOST`、`OPENSEARCH_PORT`、`OPENSEARCH_PASSWORD`
-> - 如果用 S3Vectors：设置 `S3VECTORS_BUCKET_NAME`、`S3VECTORS_INDEX_NAME`、`AWS_REGION`
-> - `OPENCLAW_BASE`：OpenClaw 数据目录路径（默认 `~/.openclaw`）
-> - `EMBEDDING_MODEL`：默认 `amazon.titan-embed-text-v2:0`
-> - `LLM_MODEL`：默认 `us.anthropic.claude-haiku-4-5-20251001-v1:0`
->
-> **步骤 3：Docker 启动**
-> ```bash
-> docker compose up -d
-> ```
->
-> **步骤 4：验证**
-> ```bash
-> curl http://localhost:8230/health
-> ```
->
-> **步骤 5：安装 OpenClaw Skill**
-> ```bash
-> mkdir -p ~/.openclaw/skills/mem0-memory
-> cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
-> ```
-> 然后在 OpenClaw 设置 → Skills → mem0-memory 中启用。
->
-> **步骤 6：测试**
-> ```bash
-> docker compose exec mem0-api python3 cli.py add --user me --agent dev \
->   --text "mem0 memory service deployed successfully" \
->   --metadata '{"category":"experience"}'
-> docker compose exec mem0-api python3 cli.py search --user me --agent dev --query "deploy"
-> ```
-
-### 方法 3：systemd（高级/自定义）
-
-如果你更倾向于不使用 Docker，直接在主机上运行：
+只想快速体验？使用内置的 PostgreSQL + pgvector，无需配置 S3 Vectors 或 OpenSearch，只需要 AWS Bedrock（LLM + Embedding）。
 
 ```bash
 git clone https://github.com/norrishuang/mem0-memory-service.git
 cd mem0-memory-service
-
-# 1. 安装依赖
-pip3 install -r requirements.txt
-
-# 2. 配置
-cp .env.example .env
-vim .env  # 填入你的 OpenSearch/S3Vectors 和 AWS 配置
-
-# 3. 测试连通性
-python3 test_connection.py
-
-# 4. 启动服务
-sudo cp systemd/mem0-memory.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mem0-memory.service
-
-# 5. 设置自动化定时器（以当前用户运行）
-mkdir -p ~/.config/systemd/user/
-
-# Session snapshot — 每 5 分钟捕获会话对话（跨 session 记忆桥梁）
-cp systemd/mem0-snapshot.service systemd/mem0-snapshot.timer ~/.config/systemd/user/
-
-# MEMORY.md 同步 — 每天 UTC 01:00 将精选知识同步到长期记忆
-cp systemd/mem0-memory-sync.service systemd/mem0-memory-sync.timer ~/.config/systemd/user/
-
-# 日记 digest — 每天 UTC 01:30 将昨日日记提炼为短期记忆
-cp systemd/mem0-auto-digest.service systemd/mem0-auto-digest.timer ~/.config/systemd/user/
-
-# 归档 — 每天 UTC 02:00 对 7 天前短期记忆进行升级或删除
-cp systemd/mem0-dream.service systemd/mem0-dream.timer ~/.config/systemd/user/
-
-systemctl --user daemon-reload
-systemctl --user enable --now mem0-snapshot.timer
-systemctl --user enable --now mem0-memory-sync.timer
-systemctl --user enable --now mem0-auto-digest.timer
-systemctl --user enable --now mem0-dream.timer
+cp .env.example .env  # 设置 VECTOR_STORE=pgvector + AWS Bedrock 凭证
+docker compose --profile pgvector up -d
 ```
 
-完整 systemd 部署说明请参见 [systemd 配置](../deploy/systemd)。
+→ [详细指南：Docker + pgvector 快速启动](../deploy/docker#最快启动本地-pgvector无需云服务)
+
+---
+
+### 🐳 方式 B：Docker（推荐）
+
+生产就绪。使用 Docker Compose，支持 S3 Vectors、OpenSearch 或 pgvector。所有 Pipeline 在容器内以 cron 任务运行。
+
+```bash
+git clone https://github.com/norrishuang/mem0-memory-service.git
+cd mem0-memory-service
+cp .env.example .env  # 配置 VECTOR_STORE + 凭证
+docker compose up -d
+```
+
+→ [详细指南：Docker 部署](../deploy/docker)
+
+---
+
+### ⚙️ 方式 C：systemd（高级）
+
+直接在宿主机运行，不依赖 Docker。适合不便使用 Docker 的环境。
+
+→ [详细指南：systemd 部署](../deploy/systemd)
+
+---
+
+> **不知道选哪个？** 从**方式 A**（pgvector）开始本地体验。准备好用于生产时，切换到**方式 B**（S3 Vectors 或 OpenSearch）。参见[何时切换存储后端](../deploy/docker#何时切换到-s3-vectors-或-opensearch)。
 
 ## 为 OpenClaw Agent 启用 Skill
 
@@ -185,16 +117,6 @@ cp skill/SKILL.md ~/.openclaw/skills/mem0-memory/SKILL.md
 > 无需修改各 Agent 的 `AGENTS.md` 文件。Skill 对所有 Agent 统一生效。
 
 **想了解背后的原理？** 参见[工作原理](./how-it-works)，详细解释了 Skill 系统、记忆流转过程和 Agent 行为规范。
-
-### 已知问题
-
-如果使用 **S3Vectors** 作为向量后端，必须在使用前应用 filter 格式 patch。详见 [PATCHES.md](https://github.com/norrishuang/mem0-memory-service/blob/main/PATCHES.md)。
-
-```bash
-python3 patch_s3vectors_filter.py
-```
-
-> ⚠️ 每次 `pip upgrade mem0ai` 后需要重新执行此 patch。
 
 ## 快速使用
 
