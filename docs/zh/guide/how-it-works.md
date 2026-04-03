@@ -110,9 +110,21 @@ Agent 读到「🔴 Agent Memory Behavior」规则
              (infer=True)          (infer=True) + 删除
 ```
 
-## 每日自动化时序
+## 部署方式：Docker vs. systemd
 
-所有自动化任务以 systemd user timer 方式运行：
+记忆管线脚本（`session_snapshot`、`auto_digest`、`auto_dream`、`memory_sync`）无论哪种部署方式都以相同逻辑运行，区别仅在于进程管理器：
+
+| | Docker（推荐） | systemd |
+|---|---|---|
+| **API 服务** | `mem0-api` 容器 | systemd service |
+| **管线执行** | `mem0-pipeline` 容器（cron） | systemd user timers |
+| **日记文件访问** | 通过 bind mount `~/.openclaw → /openclaw` | 直接文件系统 |
+| **补丁管理** | 构建时自动应用 | 手动 `python3 tools/patch_s3vectors_filter.py` |
+| **崩溃重启** | `restart: unless-stopped` | systemd `Restart=on-failure` |
+
+部署详情参见 [Docker 部署](../deploy/docker) 或 [systemd 部署](../deploy/systemd)。
+
+## 每日自动化时序
 
 | 时间（UTC） | 脚本 | 做什么 |
 |------------|------|--------|
@@ -120,6 +132,8 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 | 每 15 分钟 | `pipelines/auto_digest.py --today` | 增量模式：读取日记新增内容 → mem0 短期记忆（infer=True，mem0 自动去重） |
 | 01:00 | `pipelines/memory_sync.py` | 同步 `MEMORY.md` → mem0 长期记忆（hash 去重） |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**：Step1: 昨日日记 → mem0 长期记忆（infer=True）；Step2: 7天前短期记忆 → re-add 到长期（infer=True）后删除 |
+
+> Docker 部署中，这些脚本以 cron 任务的形式在 `mem0-pipeline` 容器内运行；systemd 部署中，以用户 timer 形式运行。两种方式的调度时间和行为完全一致。
 
 ## auto_digest 模式
 
