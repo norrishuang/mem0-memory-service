@@ -112,7 +112,7 @@ python3 tools/migrate_s3vectors_to_pgvector.py migrate \
   --user-ids boss
 ```
 
-## 快速开始
+## 🐳 快速开始：Docker + 托管向量数据库（S3 Vectors / OpenSearch）
 
 ```bash
 # 1. 克隆仓库

@@ -112,7 +112,7 @@ python3 tools/migrate_s3vectors_to_pgvector.py migrate \
   --user-ids boss
 ```
 
-## Quick Start
+## 🐳 Quick Start: Docker with Managed Vector Store (S3 Vectors / OpenSearch)
 
 ```bash
 # 1. Clone the repo
