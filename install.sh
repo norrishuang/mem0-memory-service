@@ -16,20 +16,107 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "🧠 mem0 Memory Service Installer"
 echo "=================================="
 
-# ─── 0. Check Docker ───
+# ─── 0. Check & Install Docker ───
 echo ""
 echo "🔍 Checking prerequisites..."
 
+install_docker_linux() {
+    echo "   📦 Installing Docker..."
+    OS_ID=""
+    if [ -f /etc/os-release ]; then
+        # shellcheck source=/dev/null
+        . /etc/os-release
+        OS_ID="${ID}"
+    fi
+
+    case "$OS_ID" in
+        ubuntu|debian)
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ca-certificates curl gnupg
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/${OS_ID}/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${OS_ID} $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+                sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            sudo systemctl enable docker --now
+            sudo usermod -aG docker "$USER"
+            ;;
+        amzn|fedora|rhel|centos|rocky|almalinux)
+            sudo dnf install -y docker || sudo yum install -y docker
+            sudo systemctl enable docker --now
+            sudo usermod -aG docker "$USER"
+            # docker compose plugin for yum-based systems
+            DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}"
+            mkdir -p "$DOCKER_CONFIG/cli-plugins"
+            COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+            curl -fsSL "$COMPOSE_URL" -o "$DOCKER_CONFIG/cli-plugins/docker-compose"
+            chmod +x "$DOCKER_CONFIG/cli-plugins/docker-compose"
+            ;;
+        *)
+            # Generic: use Docker's official convenience script
+            echo "   ⚠️  Unknown distro, trying Docker convenience script..."
+            curl -fsSL https://get.docker.com | sudo sh
+            sudo systemctl enable docker --now
+            sudo usermod -aG docker "$USER"
+            ;;
+    esac
+
+    # Re-exec with docker group if needed
+    if ! docker info &>/dev/null 2>&1; then
+        echo "   ℹ️  Docker installed. Re-running installer with docker group..."
+        exec newgrp docker <<EOGRP
+bash "$0"
+EOGRP
+    fi
+}
+
 if ! command -v docker &>/dev/null; then
-    echo "❌ Docker is not installed. Please install Docker 20.10+ first:"
-    echo "   https://docs.docker.com/engine/install/"
-    exit 1
+    echo "   ⚠️  Docker not found."
+    OS_TYPE="$(uname -s)"
+    case "$OS_TYPE" in
+        Linux)
+            read -rp "   Install Docker automatically? [Y/n]: " INSTALL_DOCKER
+            INSTALL_DOCKER="${INSTALL_DOCKER:-Y}"
+            if [[ "$INSTALL_DOCKER" =~ ^[Yy]$ ]]; then
+                install_docker_linux
+            else
+                echo "   ❌ Docker is required. Install manually: https://docs.docker.com/engine/install/"
+                exit 1
+            fi
+            ;;
+        Darwin)
+            if command -v brew &>/dev/null; then
+                echo "   📦 Installing Docker Desktop via Homebrew..."
+                brew install --cask docker
+                echo "   ✅ Docker Desktop installed. Please launch Docker Desktop and re-run this script."
+                open -a Docker 2>/dev/null || true
+                exit 0
+            else
+                echo "   ❌ Please install Docker Desktop: https://docs.docker.com/desktop/install/mac-install/"
+                exit 1
+            fi
+            ;;
+        *)
+            echo "   ❌ Windows detected. Please install Docker Desktop manually:"
+            echo "      https://docs.docker.com/desktop/install/windows-install/"
+            exit 1
+            ;;
+    esac
 fi
 
 if ! docker compose version &>/dev/null; then
-    echo "❌ docker compose (v2) is not available. Please install it:"
-    echo "   https://docs.docker.com/compose/install/"
-    exit 1
+    echo "   ⚠️  docker compose (v2) not found, installing plugin..."
+    DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}"
+    mkdir -p "$DOCKER_CONFIG/cli-plugins"
+    COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+    curl -fsSL "$COMPOSE_URL" -o "$DOCKER_CONFIG/cli-plugins/docker-compose"
+    chmod +x "$DOCKER_CONFIG/cli-plugins/docker-compose"
+    if ! docker compose version &>/dev/null; then
+        echo "   ❌ Failed to install docker compose. Please install manually: https://docs.docker.com/compose/install/"
+        exit 1
+    fi
 fi
 
 echo "   ✅ Docker $(docker --version | grep -oP '\d+\.\d+\.\d+')"
