@@ -238,15 +238,15 @@ python3 cli.py search --user me --agent agent1 --query "关键词" \
 
 ### 自动短期记忆提取
 
-`auto_digest.py` 脚本每 15 分钟以 `--today` 模式运行，从今天的日记文件中提取短期事件，以 `infer=True` 存入 mem0（mem0 自动处理事实提取和去重）。
+`auto_digest.py` 脚本每 15 分钟以 `--today` 模式运行，从今天的日记文件中提取短期事件，以 `infer=False` 存入 mem0（日记文本直接传入，不经过自定义 LLM 提取层）。
 
 #### 工作原理
 
 1. **读取今日日记**：从各 Agent 的 workspace 读取**今天**的日记（`YYYY-MM-DD.md`）。Agent workspace 路径自动从 `openclaw.json` 解析，无需硬编码路径。
-2. **以 infer=True 写入 mem0**：每条日记内容通过 `mem0.add(infer=True)` 存储，`run_id=今天日期`。mem0 的 LLM 自动提取关键事实并处理去重。
+2. **以 infer=False 写入 mem0**：每条日记内容通过 `mem0.add(infer=False)` 存储，`run_id=今天日期`。日记文本直接传入 mem0，不经过自定义 LLM 提取层。
 3. **元数据**：`category=short_term, source=auto_digest`
 
-> 不再使用 `.digest_state.json` 增量状态文件。使用 `infer=True`，mem0 原生处理事实提取和去重。
+> 不再使用 `.digest_state.json` 增量状态文件。使用 `infer=False`，日记文本直接存储，不经过 LLM 提取。
 
 #### 配置定时任务（systemd timer）
 

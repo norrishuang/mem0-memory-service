@@ -240,15 +240,15 @@ python3 cli.py search --user me --agent agent1 --query "keywords" \
 
 ### Automatic Short-Term Memory Extraction
 
-The `auto_digest.py` script runs every 15 minutes with `--today` mode, extracting short-term events from today's diary and storing them in mem0 with `infer=True` (mem0 handles deduplication automatically).
+The `auto_digest.py` script runs every 15 minutes with `--today` mode, extracting short-term events from today's diary and storing them in mem0 with `infer=False` (diary text is passed directly without a custom LLM extraction layer).
 
 #### How It Works
 
 1. **Read today's diary**: Reads today's `YYYY-MM-DD.md` from each agent's workspace. Workspace paths are automatically resolved from `openclaw.json`.
-2. **Write to mem0 with infer=True**: Each diary entry is stored via `mem0.add(infer=True)` with `run_id=today's date`. mem0's LLM automatically extracts key facts and handles deduplication.
+2. **Write to mem0 with infer=False**: Each diary entry is stored via `mem0.add(infer=False)` with `run_id=today's date`. Diary text is passed directly to mem0 without a custom LLM extraction layer.
 3. **Metadata**: `category=short_term, source=auto_digest`
 
-> No `.digest_state.json` state file needed. Uses `infer=True` so mem0 handles fact extraction and deduplication natively.
+> No `.digest_state.json` state file needed. Uses `infer=False` so diary text is stored directly without LLM extraction.
 
 #### Configure Scheduled Task (systemd timer)
 

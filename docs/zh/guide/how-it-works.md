@@ -90,8 +90,8 @@ Agent 读到「🔴 Agent Memory Behavior」规则
           Heartbeat      每 15 分钟     UTC 02:00      UTC 01:00
           （agent        auto_digest   auto_dream     memory_sync
            自我提炼）    --today       （Step1:        （同步
-                         (infer=True,   昨日日记 +     MEMORY.md）
-                          mem0 去重）    Step2: 7天STM）
+                         (infer=False,  昨日日记 +     MEMORY.md）
+                          直接传文本）  Step2: 7天STM）
               │             │              │              │
               ▼             ▼              ▼              ▼
           MEMORY.md     mem0 短期记忆  mem0 短期记忆  mem0 长期记忆
@@ -129,7 +129,7 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 | 时间（UTC） | 脚本 | 做什么 |
 |------------|------|--------|
 | 每 5 分钟 | `pipelines/session_snapshot.py` | 捕获会话对话 → 日记文件 |
-| 每 15 分钟 | `pipelines/auto_digest.py --today` | 增量模式：读取日记新增内容 → mem0 短期记忆（infer=True，mem0 自动去重） |
+| 每 15 分钟 | `pipelines/auto_digest.py --today` | 增量模式：读取日记新增内容 → mem0 短期记忆（infer=False，直接传文本） |
 | 01:00 | `pipelines/memory_sync.py` | 同步 `MEMORY.md` → mem0 长期记忆（hash 去重） |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**：Step1: 昨日日记 → mem0 长期记忆（infer=True）；Step2: 7天前短期记忆 → re-add 到长期（infer=True）后删除 |
 
@@ -140,10 +140,10 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 `auto_digest.py` 只有一种活跃模式：
 
 **`--today` 增量模式（每 15 分钟）**
-基于 offset 记录，每次只读取日记文件自上次运行以来的新增内容。以 `infer=True` 写入 mem0，由 mem0 自动做 fact extraction 和去重。新增内容不足 500 字节时跳过，避免无意义的小写入。写入失败时保留 offset，下次从同一断点续传。
+基于 offset 记录，每次只读取日记文件自上次运行以来的新增内容。以 `infer=False` 写入 mem0，日记文本直接传入，不经过自定义 LLM 提取层。新增内容不足 500 字节时跳过，避免无意义的小写入。写入失败时保留 offset，下次从同一断点续传。
 
 ```
-每 15 分钟 (--today)：  日记新增内容 → POST 给 mem0（infer=True，mem0 去重）
+每 15 分钟 (--today)：  日记新增内容 → POST 给 mem0（infer=False，直接传文本）
 ```
 
 > **注**：之前的默认全量模式（UTC 01:30，LLM 提取昨日日记 → mem0 短期记忆）已被 `auto_dream.py` Step 1 取代——后者直接写入长期记忆（无 run_id），质量更高。
@@ -161,7 +161,7 @@ Agent 每天重置。没有 snapshot，session 之间的对话就会丢失。Sna
 **第三个角色：近实时跨 session 记忆共享**
 同一个 agent 可能有多个并发 session——一个单聊 session 和一个或多个群聊 session。没有共享机制的话，agent 在群聊里说的内容，单聊 session 完全看不到（反之亦然）。
 
-`session_snapshot.py` 每 5 分钟将新对话写入日记文件，`auto_digest.py --today` 再每 15 分钟增量读取日记新增内容，以 `infer=True` 写入 mem0 短期记忆（run_id=今天，mem0 自动去重）。同一 agent 的其他 session 搜索 mem0 即可在约 **20 分钟内**（5 分钟 snapshot + 15 分钟 digest）获取到这些内容——无需重启 session。
+`session_snapshot.py` 每 5 分钟将新对话写入日记文件，`auto_digest.py --today` 再每 15 分钟增量读取日记新增内容，以 `infer=False` 写入 mem0 短期记忆（run_id=今天，直接传文本）。同一 agent 的其他 session 搜索 mem0 即可在约 **20 分钟内**（5 分钟 snapshot + 15 分钟 digest）获取到这些内容——无需重启 session。
 
 session 来源记录在 metadata 的 `session_key` 字段中，需要时可按来源过滤。
 
