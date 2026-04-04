@@ -268,3 +268,56 @@ pipeline 容器运行三个 cron 任务：
 | OpenClaw 访问 | Bind mount `OPENCLAW_BASE` | 直接文件系统访问 |
 
 两种方式完全兼容，可以在同一台机器上共存（使用不同端口即可）。
+
+## 升级
+
+### 一键升级（推荐）
+
+如果你通过 `install.sh` 安装，可以使用内置的 `--update` 参数：
+
+```bash
+cd /path/to/mem0-memory-service
+./install.sh --update
+```
+
+执行流程：
+1. 显示当前版本（git commit）
+2. 执行 `git pull origin main` 拉取最新代码
+3. 重新构建并重启 Docker 容器（`docker compose up -d --build`）
+4. 等待健康检查通过
+5. 打印新版本信息
+
+> **`.env` 不会被修改** — 你的所有配置（AWS Region、OPENCLAW_BASE、向量数据库等）均完整保留。
+
+### 手动升级
+
+如果你更喜欢逐步执行：
+
+```bash
+cd /path/to/mem0-memory-service
+
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 重建容器（保留 .env 和数据卷）
+docker compose up -d --build
+
+# 3. 验证
+curl http://localhost:8230/health
+```
+
+### 查看当前版本
+
+```bash
+# 查看 git commit（在源码目录中）
+git log --oneline -1
+
+# 查看正在运行的容器镜像
+docker inspect mem0-api --format '{{.Image}}'
+```
+
+### 注意事项
+
+- **数据安全**：升级不会影响数据卷（`mem0-pgdata`）和 `.env` 文件。
+- **停机时间**：API 容器在 `docker compose up -d --build` 期间会短暂重启（约 5–15 秒）。
+- **非 Docker 部署**（`--update` 仅支持 Docker）：请手动执行 `git pull && pip install -r requirements.txt && systemctl restart mem0-memory`。

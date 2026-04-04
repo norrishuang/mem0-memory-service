@@ -268,3 +268,56 @@ The pipeline container runs three cron jobs:
 | OpenClaw access | Bind mount `OPENCLAW_BASE` | Direct filesystem access |
 
 Both methods are fully supported and can coexist on the same machine (use different ports if needed).
+
+## Upgrading
+
+### One-line upgrade (recommended)
+
+If you installed via `install.sh`, use the built-in `--update` flag:
+
+```bash
+cd /path/to/mem0-memory-service
+./install.sh --update
+```
+
+This will:
+1. Show the current version (git commit)
+2. Run `git pull origin main` to fetch the latest code
+3. Rebuild and restart Docker containers (`docker compose up -d --build`)
+4. Wait for health check to pass
+5. Print the new version
+
+> **Your `.env` is never touched** — all your config (AWS region, OPENCLAW_BASE, vector store, etc.) is preserved.
+
+### Manual upgrade
+
+If you prefer to do it step by step:
+
+```bash
+cd /path/to/mem0-memory-service
+
+# 1. Pull latest code
+git pull origin main
+
+# 2. Rebuild containers (preserves .env and volumes)
+docker compose up -d --build
+
+# 3. Verify
+curl http://localhost:8230/health
+```
+
+### Checking current version
+
+```bash
+# Git commit (in source directory)
+git log --oneline -1
+
+# Running container image digest
+docker inspect mem0-api --format '{{.Image}}'
+```
+
+### Notes
+
+- **Data is safe**: volumes (`mem0-pgdata`) and your `.env` are never affected by upgrades.
+- **Downtime**: The API container restarts briefly (~5–15s) during `docker compose up -d --build`.
+- **Non-Docker deployments** (`--update` only supports Docker): run `git pull && pip install -r requirements.txt && systemctl restart mem0-memory` manually.
