@@ -21,7 +21,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -42,7 +42,6 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
 # mem0 配置
 MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 USER_ID = "boss"
-BJT = timezone(timedelta(hours=8))
 OFFSET_FILE = DATA_DIR / ".snapshot_offsets.json"
 
 # 噪音模式：需要过滤的内容
@@ -199,14 +198,14 @@ def get_today_memory_path(agent_id: str) -> Path:
         workspace = OPENCLAW_BASE / f"workspace-{agent_id}"
     memory_dir = workspace / "memory"
     memory_dir.mkdir(parents=True, exist_ok=True)
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.utcnow().strftime("%Y-%m-%d")
     return memory_dir / f"{today}.md"
 
 
 def init_memory_file(path: Path, agent_id: str) -> None:
     """初始化日记文件头"""
     if not path.exists():
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
         label = agent_id.capitalize()
         content = f"""# {date_str} - {label} Agent 日记
 
@@ -527,7 +526,7 @@ def process_agent(agent_id: str) -> None:
         return
 
     diary_path = get_today_memory_path(agent_id)
-    today = datetime.now(BJT).strftime("%Y-%m-%d")
+    today = datetime.utcnow().strftime("%Y-%m-%d")
     offsets = load_offsets()
 
     for session_key, session_path in sessions:
