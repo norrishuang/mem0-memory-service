@@ -42,7 +42,7 @@
 
 **非 EC2 环境**：在 `.env` 中设置 `AWS_ACCESS_KEY_ID` 和 `AWS_SECRET_ACCESS_KEY`。
 
-## 🚀 最快启动：本地 pgvector（无需云服务）
+## 🚀 快速体验：本地 pgvector（Demo / 本地开发，无需云服务）
 
 如果只想在本地快速体验 mem0 Memory Service，无需配置 S3 Vectors 或 OpenSearch，可以使用内置的 PostgreSQL + pgvector 后端。只需要 AWS Bedrock（LLM + Embedding）凭证即可。
 
@@ -112,7 +112,7 @@ python3 tools/migrate_s3vectors_to_pgvector.py migrate \
   --user-ids boss
 ```
 
-## 🐳 快速开始：Docker + 托管向量数据库（S3 Vectors / OpenSearch）
+## 🐳 生产环境部署：Docker + 托管向量数据库（S3 Vectors / OpenSearch）
 
 ```bash
 # 1. 克隆仓库
