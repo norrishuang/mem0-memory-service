@@ -356,6 +356,7 @@ async def list_memories(
     agent_id: Optional[str] = None,
     run_id: Optional[str] = None,
     limit: int = 100,
+    offset: int = 0,
 ):
     """List all memories for a user, optionally filtered by agent/run."""
     kwargs = {"user_id": user_id}
@@ -367,8 +368,15 @@ async def list_memories(
     try:
         loop = asyncio.get_event_loop()
         kw = dict(kwargs)
-        results = await loop.run_in_executor(_mem0_executor, lambda: memory.get_all(**kw))
-        return {"status": "ok", "results": results}
+        all_results = await loop.run_in_executor(_mem0_executor, lambda: memory.get_all(**kw))
+        # Normalize: get_all may return dict with "results" key or a list
+        if isinstance(all_results, dict) and "results" in all_results:
+            items = all_results["results"]
+        else:
+            items = all_results if isinstance(all_results, list) else []
+        total = len(items)
+        results = items[offset:offset + limit]
+        return {"status": "ok", "results": results, "total": total}
     except Exception as e:
         logger.error(f"Error listing memories: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
