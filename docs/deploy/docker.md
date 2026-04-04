@@ -42,7 +42,7 @@ The AWS identity used (IAM Role or Access Key) must have the following permissio
 
 **Outside EC2**: Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in `.env`.
 
-## 🚀 Quickest Start: Local pgvector (No Cloud Required)
+## 🚀 Quick Trial: Local pgvector (Demo / Local Dev, No Cloud Required)
 
 If you just want to try mem0 Memory Service locally without setting up S3 Vectors or OpenSearch, use the built-in PostgreSQL + pgvector backend. No AWS vector store credentials needed — only AWS Bedrock (LLM + Embedding) is required.
 
@@ -112,7 +112,7 @@ python3 tools/migrate_s3vectors_to_pgvector.py migrate \
   --user-ids boss
 ```
 
-## 🐳 Quick Start: Docker with Managed Vector Store (S3 Vectors / OpenSearch)
+## 🐳 Production Deployment: Docker with Managed Vector Store (S3 Vectors / OpenSearch)
 
 ```bash
 # 1. Clone the repo
