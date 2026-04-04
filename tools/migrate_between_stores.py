@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
 """
-Migrate memories between mem0 service instances via HTTP API.
+Migrate memories between any two mem0 service instances via HTTP API.
 
-Usage:
-  # Dump from source service to JSONL file
-  python3 tools/migrate_s3vectors_to_pgvector.py dump \
-    --source-url http://127.0.0.1:8230 --user-ids boss --output migration_dump.jsonl
+This is a generic migration tool that works with any vector store backend
+(pgvector, S3 Vectors, OpenSearch, etc.). It communicates through the mem0
+HTTP API, so the underlying storage engine is transparent.
 
-  # Load from JSONL file to target service
-  python3 tools/migrate_s3vectors_to_pgvector.py load \
-    --target-url http://127.0.0.1:8231 --input migration_dump.jsonl
-
-  # One-shot migrate (dump + load)
-  python3 tools/migrate_s3vectors_to_pgvector.py migrate \
+Common scenarios:
+  # pgvector → S3 Vectors
+  python3 tools/migrate_between_stores.py migrate \
     --source-url http://127.0.0.1:8230 --target-url http://127.0.0.1:8231 --user-ids boss
+
+  # pgvector → OpenSearch
+  python3 tools/migrate_between_stores.py migrate \
+    --source-url http://127.0.0.1:8230 --target-url http://127.0.0.1:8231 --user-ids boss
+
+  # S3 Vectors → OpenSearch
+  python3 tools/migrate_between_stores.py migrate \
+    --source-url http://127.0.0.1:8230 --target-url http://127.0.0.1:8231 --user-ids boss
+
+Subcommands:
+  dump     Dump memories from source service to a JSONL file
+  load     Load memories from JSONL file into target service (supports resume)
+  migrate  One-shot dump + load
 """
 import argparse
 import json
-import sys
 import tempfile
 from pathlib import Path
 
@@ -122,7 +130,7 @@ def migrate(source_url: str, target_url: str, user_ids: list[str]):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Migrate memories between mem0 service instances")
+    parser = argparse.ArgumentParser(description="Migrate memories between any two mem0 service instances")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_dump = sub.add_parser("dump", help="Dump memories from source service to JSONL")
