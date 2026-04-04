@@ -421,6 +421,18 @@ def write_to_memory(messages: list, path: Path, agent_id: str, session_key: str 
     if not messages:
         return 0, []
 
+    # 先做 hash 去重判断（不依赖日记文件），避免为无新消息的 agent 创建空日记
+    offsets = load_offsets()
+    written_hashes = set(offsets.get(session_key, {}).get("written_hashes", []))
+    all_lines = build_message_lines(messages, agent_id)
+    new_indices = [i for i, line in enumerate(all_lines) if _msg_hash(line) not in written_hashes]
+    new_lines = [all_lines[i] for i in new_indices]
+
+    if not new_lines:
+        logger.debug(f"[{agent_id}] All messages already recorded (hash dedup), skipping")
+        return 0, []
+
+    # 确认有新消息后才创建日记文件
     init_memory_file(path, agent_id)
 
     # 使用文件锁防止并发写入导致重复（lock file 与 diary 同目录）
@@ -438,19 +450,6 @@ def write_to_memory(messages: list, path: Path, agent_id: str, session_key: str 
     try:
         # 先做日记大小保护（裁剪超大日记）
         trim_diary_if_oversized(path, agent_id)
-
-        # 从 offsets.json 加载该 session 已写入的消息 hash 集合（持久化去重，不受 trim 影响）
-        offsets = load_offsets()
-        written_hashes = set(offsets.get(session_key, {}).get("written_hashes", []))
-
-        # 基于 hash 去重：只写入 offsets 中未记录过的消息
-        all_lines = build_message_lines(messages, agent_id)
-        new_indices = [i for i, line in enumerate(all_lines) if _msg_hash(line) not in written_hashes]
-        new_lines = [all_lines[i] for i in new_indices]
-
-        if not new_lines:
-            logger.debug(f"[{agent_id}] All messages already recorded (hash dedup), skipping")
-            return 0, []
 
         time_marker = datetime.now().strftime("%H:%M")
         label = f" Session {session_key}" if session_key else " Session snapshot"
