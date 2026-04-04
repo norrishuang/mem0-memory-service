@@ -83,10 +83,25 @@ def load_agent_workspaces() -> dict:
             with open(OPENCLAW_CONFIG) as f:
                 config = json.load(f)
 
+            def _remap_workspace(ws: Path) -> Path:
+                """将宿主机 workspace 路径重映射到容器内挂载路径。"""
+                if ws.exists():
+                    return ws
+                ws_str = str(ws)
+                for host_prefix in [
+                    str(Path.home() / ".openclaw"),
+                    "/home/ec2-user/.openclaw",
+                ]:
+                    if ws_str.startswith(host_prefix):
+                        remapped = Path(str(WORKSPACE_BASE) + ws_str[len(host_prefix):])
+                        if remapped.exists():
+                            return remapped
+                return ws
+
             def _extract(obj):
                 if isinstance(obj, dict):
                     if 'id' in obj and 'workspace' in obj and isinstance(obj.get('workspace'), str):
-                        mapping[obj['id']] = Path(obj['workspace'])
+                        mapping[obj['id']] = _remap_workspace(Path(obj['workspace']))
                     for v in obj.values():
                         _extract(v)
                 elif isinstance(obj, list):
