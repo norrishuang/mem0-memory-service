@@ -56,7 +56,9 @@ OpenClaw Agents (agent1, agent2, ...)
 
 ## One-Line Deploy
 
-The fastest way to get started — send this to your OpenClaw AI assistant:
+Want to try it out quickly? Send this to your OpenClaw AI assistant to deploy a memory system backed by **local pgvector** — no cloud vector store required, and your memory data is persisted locally.
+
+When you're ready to scale, you can **smoothly migrate** to S3 Vectors or OpenSearch at any time using the built-in migration tool. Your data follows you.
 
 ---
 
@@ -70,10 +72,12 @@ The fastest way to get started — send this to your OpenClaw AI assistant:
 
 ---
 
-That's it. The installer handles everything: AWS Region detection, default config, Docker containers, and skill installation.
+The installer handles everything: AWS Region detection, default config, Docker containers (including PostgreSQL + pgvector), and skill installation.
 
-> **Prerequisites**: Docker 20.10+, AWS Bedrock access (IAM Role on EC2 or configured credentials).
+> **Prerequisites**: Docker 20.10+ (auto-installed if missing on Linux/macOS), AWS Bedrock access (IAM Role on EC2 or configured credentials).
 > No OpenSearch or S3 Vectors account needed to get started.
+
+> **Want to migrate later?** Use `tools/migrate_between_stores.py` to move your memories to S3 Vectors or OpenSearch without data loss. See [Migration Guide](../guide/migration).
 
 ## Deployment
 
