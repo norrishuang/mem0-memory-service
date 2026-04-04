@@ -54,7 +54,9 @@ OpenClaw Agents (agent1, agent2, ...)
 
 ## 一键部署
 
-最快的体验方式 — 把下面这段话发给你的 OpenClaw AI 助手：
+想快速尝试？把下面这段话发给你的 OpenClaw AI 助手，即可部署一套基于**本地 pgvector** 的记忆系统——无需任何云端向量数据库，记忆数据持久化在本地。
+
+当你准备好扩展时，可以随时使用内置迁移工具**平滑迁移**到 S3 Vectors 或 OpenSearch，数据不会丢失。
 
 ---
 
@@ -68,10 +70,12 @@ OpenClaw Agents (agent1, agent2, ...)
 
 ---
 
-安装脚本自动处理：AWS Region 探测、默认配置、Docker 容器启动、Skill 安装，无需手动配置任何内容。
+安装脚本自动处理：AWS Region 探测、默认配置、Docker 容器启动（含 PostgreSQL + pgvector）、Skill 安装，无需手动配置任何内容。
 
-> **前提条件**：Docker 20.10+，AWS Bedrock 访问权限（EC2 IAM Role 或已配置凭证）。
+> **前提条件**：Docker 20.10+（Linux/macOS 未安装时自动安装），AWS Bedrock 访问权限（EC2 IAM Role 或已配置凭证）。
 > 开始体验无需 OpenSearch 或 S3 Vectors。
+
+> **之后想迁移？** 使用 `tools/migrate_between_stores.py` 将记忆数据迁移到 S3 Vectors 或 OpenSearch，数据零丢失。参见[迁移指南](../guide/migration)。
 
 ## 部署方式
 
