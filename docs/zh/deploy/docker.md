@@ -44,6 +44,8 @@
 
 ## 🚀 快速体验：本地 pgvector（Demo / 本地开发，无需云服务）
 
+> **最快方式**：直接运行 `./install.sh`，自动探测 AWS Region，默认配置一键完成。参见[一键部署](../guide/getting-started#一键部署)。
+
 如果只想在本地快速体验 mem0 Memory Service，无需配置 S3 Vectors 或 OpenSearch，可以使用内置的 PostgreSQL + pgvector 后端。只需要 AWS Bedrock（LLM + Embedding）凭证即可。
 
 ```bash
