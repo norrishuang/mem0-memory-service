@@ -121,7 +121,7 @@ def search_memory(args):
 
 
 def list_memories(args):
-    params = {"user_id": args.user}
+    params = {"user_id": args.user, "limit": args.limit, "offset": args.offset}
     if args.agent:
         params["agent_id"] = args.agent
     if args.run:
@@ -129,7 +129,19 @@ def list_memories(args):
 
     resp = requests.get(f"{BASE_URL}/memory/list", params=params, timeout=30)
     resp.raise_for_status()
-    print(json.dumps(resp.json(), indent=2, ensure_ascii=False))
+    data = resp.json()
+
+    if args.count_only:
+        agent_label = args.agent or "all"
+        print(f"{agent_label} 共 {data.get('total', '?')} 条记忆")
+        return
+
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+
+    results = data.get("results", [])
+    if len(results) == args.limit:
+        next_offset = args.offset + args.limit
+        print(f"\n# 提示：已达返回上限({args.limit}条)，使用 --offset {next_offset} 查看更多")
 
 
 def get_memory(args):
@@ -187,6 +199,9 @@ def main():
     p_list.add_argument("--user", required=True)
     p_list.add_argument("--agent", default=None)
     p_list.add_argument("--run", default=None)
+    p_list.add_argument("--limit", type=int, default=100, help="Max results to return (default: 100)")
+    p_list.add_argument("--offset", type=int, default=0, help="Skip first N results (default: 0)")
+    p_list.add_argument("--count-only", action="store_true", help="Only print total count")
     p_list.set_defaults(func=list_memories)
 
     # get
