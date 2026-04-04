@@ -3,7 +3,7 @@
 auto_digest.py - 自动从日记文件提取短期记忆
 
 两种模式：
-  默认模式：每天 UTC 01:30 运行，读取北京时间昨天的完整日记，分批 POST 给 mem0（infer=True，由 mem0 内部做 fact extraction）
+  默认模式：每天 UTC 01:30 运行，读取 UTC 昨天的完整日记，分批 POST 给 mem0（infer=True，由 mem0 内部做 fact extraction）
   --today 模式：每 15 分钟增量运行，读取今天日记的新增部分，分批 POST 给 mem0（由 mem0 内部做 fact extraction）
 """
 import argparse
@@ -94,19 +94,14 @@ def load_agent_workspaces() -> dict:
     return mapping
 
 
-def get_beijing_yesterday() -> str:
-    """获取北京时间昨天的日期字符串"""
-    utc_now = datetime.utcnow()
-    beijing_now = utc_now + timedelta(hours=8)
-    yesterday = beijing_now - timedelta(days=1)
-    return yesterday.strftime("%Y-%m-%d")
+def get_utc_yesterday() -> str:
+    """获取 UTC 昨天的日期字符串"""
+    return (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
-def get_beijing_today() -> str:
-    """获取北京时间今天的日期字符串"""
-    utc_now = datetime.utcnow()
-    beijing_now = utc_now + timedelta(hours=8)
-    return beijing_now.strftime("%Y-%m-%d")
+def get_utc_today() -> str:
+    """获取 UTC 今天的日期字符串"""
+    return datetime.utcnow().strftime("%Y-%m-%d")
 
 
 # ─── Offset Management (for incremental mode) ───
@@ -316,7 +311,7 @@ def main():
 
     if args.today:
         # 今日增量模式
-        today = get_beijing_today()
+        today = get_utc_today()
         logger.info(f"Starting auto_digest.py --today (incremental, date={today})")
         offsets = load_offsets()
 
@@ -332,7 +327,7 @@ def main():
         logger.info("Incremental digest completed")
     else:
         # 昨日全量模式（原有逻辑）
-        yesterday = get_beijing_yesterday()
+        yesterday = get_utc_yesterday()
         logger.info(f"Starting auto_digest.py (full mode, date={yesterday})")
 
         for agent_id, workspace in sorted(workspaces.items()):

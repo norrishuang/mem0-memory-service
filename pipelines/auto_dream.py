@@ -123,10 +123,8 @@ def load_agent_workspaces() -> dict[str, Path]:
 
 # ─── Helpers ───
 
-def get_beijing_yesterday() -> str:
-    tz_beijing = timezone(timedelta(hours=8))
-    yesterday = datetime.now(tz_beijing).date() - timedelta(days=1)
-    return yesterday.strftime("%Y-%m-%d")
+def get_utc_yesterday() -> str:
+    return (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def get_short_term_memories(agent_id: str, run_id: str) -> list:
@@ -163,7 +161,7 @@ def delete_memory(memory_id: str):
 
 def digest_yesterday(agent_id: str, workspace: Path):
     """读取昨日日记 → POST mem0.add(infer=True, 无 run_id) → 长期记忆"""
-    yesterday = get_beijing_yesterday()
+    yesterday = get_utc_yesterday()
     diary_file = workspace / "memory" / f"{yesterday}.md"
     if not diary_file.exists():
         logger.info(f"[{agent_id}] No diary for {yesterday}, skipping digest")
@@ -233,12 +231,12 @@ def main():
     logger.info("=" * 80)
     logger.info("Starting auto_dream.py (AutoDream consolidation)")
 
-    tz_beijing = timezone(timedelta(hours=8))
-    today = datetime.now(tz_beijing).date()
+    tz_utc = timezone.utc
+    today = datetime.now(tz_utc).date()
     target_date = today - timedelta(days=ARCHIVE_DAYS)
     target_run_id = target_date.strftime("%Y-%m-%d")
 
-    logger.info(f"Beijing date: {today}")
+    logger.info(f"UTC date: {today}")
     logger.info(f"Target run_id for consolidation: {target_run_id}")
 
     workspaces = load_agent_workspaces()
