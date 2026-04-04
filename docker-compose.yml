@@ -49,6 +49,7 @@ services:
     entrypoint: ["/app/docker/entrypoint-pipeline.sh"]
     volumes:
       - ${OPENCLAW_BASE:-~/.openclaw}:/openclaw:rw
+      - ${OPENCLAW_BASE:-~/.openclaw}:/home/ec2-user/clawd:rw  # main agent workspace alias (#61)
       - ./data:/app/data
       - ${AWS_CONFIG_DIR:-~/.aws}:/root/.aws:ro
     env_file:

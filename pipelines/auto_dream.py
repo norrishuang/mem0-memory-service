@@ -38,8 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, mode='a'),
-        logging.StreamHandler(sys.stdout)
+        logging.StreamHandler(sys.stdout)  # cron >> /app/data/auto_dream.log handles file writing
     ]
 )
 logger = logging.getLogger(__name__)
