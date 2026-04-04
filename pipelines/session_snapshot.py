@@ -290,13 +290,34 @@ def get_active_session_paths(agent_id: str) -> list[tuple[str, Path]]:
         with open(session_store, 'r') as f:
             data = json.load(f)
 
+        def _remap_session_file(sf: str) -> Path:
+            """将 sessionFile 绝对路径重映射到容器内挂载路径。
+            例如：/home/ec2-user/.openclaw/... → /openclaw/...（当 OPENCLAW_BASE=/openclaw 时）
+            """
+            p = Path(sf)
+            if p.exists():
+                return p
+            # 尝试将路径中的宿主机 openclaw 目录替换为容器内挂载路径
+            sf_str = str(sf)
+            for host_prefix in [
+                str(Path.home() / ".openclaw"),
+                "/home/ec2-user/.openclaw",
+            ]:
+                if sf_str.startswith(host_prefix):
+                    remapped = Path(str(OPENCLAW_BASE) + sf_str[len(host_prefix):])
+                    if remapped.exists():
+                        return remapped
+            return p
+
         prefix = f"agent:{agent_id}:"
         result = []
         for key, val in data.items():
             if key.startswith(prefix) and isinstance(val, dict):
                 sf = val.get('sessionFile')
-                if sf and Path(sf).exists():
-                    result.append((key, Path(sf)))
+                if sf:
+                    remapped = _remap_session_file(sf)
+                    if remapped.exists():
+                        result.append((key, remapped))
         return result
     except Exception as e:
         logger.debug(f"[{agent_id}] Failed to get session paths: {e}")
