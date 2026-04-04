@@ -3,8 +3,8 @@
 auto_digest.py - 自动从日记文件提取短期记忆
 
 两种模式：
-  默认模式：每天 UTC 01:30 运行，读取北京时间昨天的完整日记，用 LLM 提炼后写入 mem0（run_id=昨天日期）
-  --today 模式：每 15 分钟增量运行，读取今天日记的新增部分，直接 POST 给 mem0（由 mem0 内部做 fact extraction）
+  默认模式：每天 UTC 01:30 运行，读取北京时间昨天的完整日记，分批 POST 给 mem0（infer=True，由 mem0 内部做 fact extraction）
+  --today 模式：每 15 分钟增量运行，读取今天日记的新增部分，分批 POST 给 mem0（由 mem0 内部做 fact extraction）
 """
 import argparse
 import json
@@ -14,11 +14,9 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import boto3
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-import config as app_config
 
 # ─── Configuration ───
 
@@ -31,33 +29,9 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
 LOG_FILE = DATA_DIR / "auto_digest.log"
 OFFSET_FILE = DATA_DIR / "auto_digest_offset.json"
 MEM0_API_URL = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230/memory/add")
-# Digest LLM config — read from app_config (supports .env override)
-BEDROCK_MODEL_ID = app_config.DIGEST_LLM_MODEL
-AWS_REGION = app_config.DIGEST_LLM_REGION
 MIN_CONTENT_BYTES = 500   # 新增内容少于此值则跳过（避免无意义的小更新）
 BATCH_SIZE_BYTES = 50000  # 每批读取的字节数（50KB）
 BATCH_SLEEP_SECS = 5      # 批次间 sleep，避免打爆 mem0
-
-EXTRACT_PROMPT = """你是一个记忆提取助手。以下是一段工作日记内容，请从中提取今天发生的关键短期事件。
-
-要提取的内容：
-- 人与人之间的讨论（谁和谁讨论了什么）
-- 任务进展（完成了什么、进行中的什么）
-- 临时决策或假设（做了某个决定但还未确定）
-- 重要会议或沟通
-
-不需要提取的内容：
-- 长期技术方案（已有长期记忆处理）
-- 环境配置信息（已有长期记忆处理）
-- 已经是明确结论的长期决策
-
-请用简洁的中文输出，每条事件一行，格式：
-[事件类型] 具体描述
-
-如果没有值得记录的短期事件，输出：NO_EVENTS
-
-日记内容：
-{content}"""
 
 # ─── Setup Logging ───
 
@@ -156,31 +130,6 @@ def save_offsets(offsets: dict):
 
 
 # ─── Core Functions ───
-
-def call_llm_extract(content: str) -> list[str] | None:
-    """调用 Bedrock LLM 提取短期事件（使用 Converse API，兼容 MiniMax 等非 Claude 模型）"""
-    try:
-        bedrock = boto3.client(service_name='bedrock-runtime', region_name=AWS_REGION)
-        response = bedrock.converse(
-            modelId=BEDROCK_MODEL_ID,
-            messages=[{"role": "user", "content": [{"text": EXTRACT_PROMPT.format(content=content)}]}],
-            inferenceConfig={
-                "maxTokens": 2000,
-                "temperature": 0.3,
-            }
-        )
-        text = response["output"]["message"]["content"][0]["text"].strip()
-
-        if text == "NO_EVENTS":
-            logger.info("LLM returned NO_EVENTS")
-            return None
-
-        events = [line.strip() for line in text.split('\n') if line.strip()]
-        logger.info(f"LLM extracted {len(events)} events")
-        return events
-    except Exception as e:
-        logger.error(f"Error calling LLM: {e}", exc_info=True)
-        return None
 
 
 def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = False) -> bool:
@@ -298,7 +247,7 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
         return {"status": status, "new_bytes": total_new, "memories_added": 0, "batches_sent": batches_sent}
 
     else:
-        # 全量模式：读取整个文件，LLM 提炼后写 mem0
+        # 全量模式：读取整个文件，分批直接 POST 给 mem0（infer=True，由 mem0 内部做 fact extraction）
         content = diary_file.read_text(encoding='utf-8')
         logger.info(f"[{agent_id}] Full mode: processing diary for {date} ({file_size} bytes)")
 
@@ -306,14 +255,23 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
             logger.info(f"[{agent_id}] Content is empty, skipping")
             return {"status": "skipped", "new_bytes": 0, "memories_added": 0, "batches_sent": 0}
 
-        events = call_llm_extract(content)
-        if not events:
-            return {"status": "skipped", "new_bytes": file_size, "memories_added": 0, "batches_sent": 0}
+        content_bytes = content.encode('utf-8')
+        batches_sent = 0
+        batches_failed = 0
+        offset = 0
+        while offset < len(content_bytes):
+            chunk = content_bytes[offset:offset + BATCH_SIZE_BYTES].decode('utf-8', errors='replace')
+            if write_to_mem0(chunk, date, agent_id, incremental=False):
+                batches_sent += 1
+            else:
+                batches_failed += 1
+            offset += BATCH_SIZE_BYTES
+            if offset < len(content_bytes):
+                time.sleep(BATCH_SLEEP_SECS)
 
-        success = sum(1 for e in events if write_to_mem0(e, date, agent_id, incremental=False))
-        logger.info(f"[{agent_id}] Wrote {success}/{len(events)} events to mem0 (run_id={date})")
-        status = "ok" if success > 0 else "failed"
-        return {"status": status, "new_bytes": file_size, "memories_added": success, "batches_sent": 0}
+        logger.info(f"[{agent_id}] Full mode done: {batches_sent} batches sent, {batches_failed} failed")
+        status = "failed" if batches_failed > 0 and batches_sent == 0 else "ok"
+        return {"status": status, "new_bytes": file_size, "memories_added": 0, "batches_sent": batches_sent}
 
 
 def _log_run_summary(results: list[tuple[str, dict]], elapsed: float):
