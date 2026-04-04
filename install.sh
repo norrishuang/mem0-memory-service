@@ -3,7 +3,8 @@
 # mem0 Memory Service - One-Line Docker Installer for OpenClaw
 #
 # Usage:
-#   ./install.sh
+#   ./install.sh            # Fresh install
+#   ./install.sh --update   # In-place upgrade (Docker only, preserves .env)
 #
 # Prerequisites:
 #   - Docker 20.10+ with docker compose (v2)
@@ -12,6 +13,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ─── Argument parsing ───
+UPDATE_MODE=false
+for arg in "$@"; do
+  case "$arg" in
+    --update) UPDATE_MODE=true ;;
+    *) echo "Unknown argument: $arg"; exit 1 ;;
+  esac
+done
 
 echo "🧠 mem0 Memory Service Installer"
 echo "=================================="
@@ -121,6 +131,75 @@ fi
 
 echo "   ✅ Docker $(docker --version | grep -oP '\d+\.\d+\.\d+')"
 echo "   ✅ $(docker compose version)"
+
+# ─── Update mode ───
+if $UPDATE_MODE; then
+    echo ""
+    echo "🔄 Upgrade mode"
+    echo "=================================="
+    cd "$SCRIPT_DIR"
+
+    # Must have existing installation
+    if [ ! -f "$SCRIPT_DIR/.env" ] || [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
+        echo "   ❌ No existing installation found (.env or docker-compose.yml missing)."
+        echo "   Please run ./install.sh first to install."
+        exit 1
+    fi
+
+    # Check docker-compose is used (non-Docker not supported yet)
+    if ! docker compose ps --quiet 2>/dev/null | head -1 | grep -q .; then
+        echo "   ℹ️  当前仅支持 Docker 部署的升级 (only Docker deployments supported for upgrade)"
+        exit 1
+    fi
+
+    # Current version
+    CURRENT_COMMIT=$(git log --oneline -1 2>/dev/null || echo "unknown")
+    echo "   📌 Current: ${CURRENT_COMMIT}"
+
+    # Pull latest
+    echo "   ⬇️  Pulling latest code..."
+    if ! git pull origin main; then
+        echo "   ❌ git pull failed. Check that this is a git repo and network is available."
+        exit 1
+    fi
+
+    NEW_COMMIT=$(git log --oneline -1)
+    echo "   📌 Updated: ${NEW_COMMIT}"
+
+    # Rebuild & restart (preserves .env)
+    echo ""
+    echo "🐳 Rebuilding containers..."
+    docker compose up -d --build
+
+    # Health check (reuse same logic)
+    echo ""
+    echo "🧪 Waiting for service to be healthy..."
+    MAX_WAIT=90
+    WAITED=0
+    while [ $WAITED -lt $MAX_WAIT ]; do
+        if curl -s "http://127.0.0.1:8230/health" 2>/dev/null | grep -q '"ok"'; then
+            echo "   ✅ API healthy at http://127.0.0.1:8230"
+            break
+        fi
+        sleep 3
+        WAITED=$((WAITED + 3))
+        echo "   ⏳ Waiting... (${WAITED}s)"
+    done
+
+    if [ $WAITED -ge $MAX_WAIT ]; then
+        echo "   ⚠️  Service not healthy after ${MAX_WAIT}s. Check logs:"
+        echo "      docker compose logs"
+        exit 1
+    fi
+
+    echo ""
+    echo "════════════════════════════════════════"
+    echo "🎉 Upgrade complete!"
+    echo "   Version: ${NEW_COMMIT}"
+    echo "   API:     http://127.0.0.1:8230"
+    echo "════════════════════════════════════════"
+    exit 0
+fi
 
 # ─── 1. Auto-detect AWS Region ───
 echo ""
