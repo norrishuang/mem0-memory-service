@@ -52,6 +52,27 @@ OpenClaw Agents (agent1, agent2, ...)
   - 如果使用 S3Vectors：`s3vectors:*`（对应 bucket 资源）
   - EC2 用户：将 IAM Role 附加到实例即可，无需在 .env 中配置 Access Key
 
+## 一键部署
+
+最快的体验方式 — 把下面这段话发给你的 OpenClaw AI 助手：
+
+---
+
+> 帮我部署 **mem0 Memory Service**，使用本地 pgvector 模式。
+>
+> 步骤：
+> 1. `git clone https://github.com/norrishuang/mem0-memory-service.git && cd mem0-memory-service`
+> 2. 运行 `./install.sh` — 自动检测 AWS Region，使用本地 pgvector（无需云端向量数据库）
+> 3. 验证：`curl http://localhost:8230/health`
+> 4. 在 OpenClaw 设置 → Skills → 启用 mem0-memory
+
+---
+
+安装脚本自动处理：AWS Region 探测、默认配置、Docker 容器启动、Skill 安装，无需手动配置任何内容。
+
+> **前提条件**：Docker 20.10+，AWS Bedrock 访问权限（EC2 IAM Role 或已配置凭证）。
+> 开始体验无需 OpenSearch 或 S3 Vectors。
+
 ## 部署方式
 
 根据你的环境选择合适的部署方式：
