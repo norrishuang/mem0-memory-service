@@ -31,8 +31,8 @@ OFFSET_FILE = DATA_DIR / "auto_digest_offset.json"
 _raw_url = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 MEM0_BASE_URL = _raw_url.removesuffix("/memory/add").removesuffix("/")
 MEM0_API_URL = f"{MEM0_BASE_URL}/memory/add"
-MIN_CONTENT_BYTES = 500   # 新增内容少于此值则跳过（避免无意义的小更新）
-BATCH_SIZE_BYTES = 50000  # 每批读取的字节数（50KB）
+MIN_CONTENT_BYTES = 5000   # 新增内容少于此值则跳过（避免无意义的小更新）
+BATCH_SIZE_BYTES = 200000  # 每批读取的字节数（200KB）
 BATCH_SLEEP_SECS = 5      # 批次间 sleep，避免打爆 mem0
 
 # ─── Setup Logging ───
