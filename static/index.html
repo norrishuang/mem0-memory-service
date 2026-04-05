@@ -32,7 +32,9 @@ select:focus,input:focus{border-color:#3b82f6}
 
   <!-- Stats -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-    <div class="card text-center" v-for="s in stats" :key="s.agent">
+    <div class="card text-center cursor-pointer transition-all" v-for="s in stats" :key="s.agent"
+         :class="selectedStat===s.agent?'border-blue-500 border-2':'hover:border-gray-500'"
+         @click="clickStat(s.agent)">
       <div class="text-2xl font-bold text-white">{{s.count}}</div>
       <div class="text-sm text-gray-400">{{s.agent||'all'}}</div>
     </div>
@@ -63,6 +65,7 @@ select:focus,input:focus{border-color:#3b82f6}
           <div class="flex items-center gap-2 mb-1">
             <span class="badge bg-blue-900 text-blue-300">{{m.agent_id||'—'}}</span>
             <span v-if="m.score" class="badge bg-green-900 text-green-300">{{(m.score*100).toFixed(0)}}%</span>
+            <span class="badge" :style="isShortTerm(m)?'background:#7c2d12;color:#fdba74':'background:#581c87;color:#d8b4fe'">{{isShortTerm(m)?'短期':'长期'}}</span>
             <span class="text-xs text-gray-500">{{fmtTime(m.created_at||m.updated_at)}}</span>
           </div>
           <div :class="expanded===m.id?'':'truncate-2'" class="text-sm text-gray-300 break-words">{{m.memory}}</div>
@@ -109,7 +112,7 @@ createApp({
     const memories=ref([]),total=ref(0),page=ref(1),loading=ref(true)
     const agentFilter=ref(''),searchQuery=ref(''),isSearchMode=ref(false)
     const expanded=ref(null),delTarget=ref(null)
-    const stats=ref([]),agents=ref([])
+    const stats=ref([]),agents=ref([]),selectedStat=ref(null)
 
     const totalPages=computed(()=>Math.max(1,Math.ceil(total.value/PAGE_SIZE)))
 
@@ -168,10 +171,16 @@ createApp({
       if(!t)return''
       try{return new Date(t).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}catch{return t}
     }
+    function clickStat(agent){
+      if(selectedStat.value===agent){selectedStat.value=null;agentFilter.value=''}
+      else{selectedStat.value=agent;agentFilter.value=agent==='Total'?'':agent}
+      page.value=1;loadList()
+    }
+    function isShortTerm(m){return !!(m.run_id||(m.metadata&&m.metadata.category==='short_term'))}
 
     onMounted(()=>{loadStats();loadList()})
 
-    return{memories,total,page,totalPages,loading,agentFilter,searchQuery,isSearchMode,expanded,delTarget,stats,agents,loadList,doSearch,clearSearch,toggle,confirmDelete,doDelete,fmtTime}
+    return{memories,total,page,totalPages,loading,agentFilter,searchQuery,isSearchMode,expanded,delTarget,stats,agents,selectedStat,loadList,doSearch,clearSearch,toggle,confirmDelete,doDelete,fmtTime,clickStat,isShortTerm}
   }
 }).mount('#app')
 </script>
