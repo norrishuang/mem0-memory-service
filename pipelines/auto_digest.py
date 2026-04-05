@@ -146,7 +146,7 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
             "text": event,
             "infer": True,
             "metadata": metadata
-        }, timeout=30)
+        }, timeout=120)
         resp.raise_for_status()
         logger.info(f"✓ Wrote to mem0: {event[:80]}...")
         return True
