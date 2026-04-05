@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # Set AWS region before any boto3 import
@@ -455,6 +456,8 @@ async def memory_history(memory_id: str):
         logger.error(f"Error getting memory history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+app.mount("/ui", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="ui")
 
 if __name__ == "__main__":
     import uvicorn
