@@ -57,7 +57,7 @@ services:
     environment:
       - OPENCLAW_BASE=/openclaw
       - DATA_DIR=/app/data
-      - MEM0_API_URL=http://mem0-api:8230/memory/add
+      - MEM0_API_URL=http://mem0-api:8230
     depends_on:
       mem0-api:
         condition: service_healthy
