@@ -369,6 +369,7 @@ async def list_memories(
     try:
         loop = asyncio.get_event_loop()
         kw = dict(kwargs)
+        kw["limit"] = 10000  # override mem0 default limit=100 to fetch all memories (#83)
         all_results = await loop.run_in_executor(_mem0_executor, lambda: memory.get_all(**kw))
         # Normalize: get_all may return dict with "results" key or a list
         if isinstance(all_results, dict) and "results" in all_results:
