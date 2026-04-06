@@ -10,8 +10,9 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -98,12 +99,34 @@ def load_agent_workspaces() -> dict:
 
 def get_utc_yesterday() -> str:
     """获取 UTC 昨天的日期字符串"""
-    return (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def get_utc_today() -> str:
     """获取 UTC 今天的日期字符串"""
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+_TS_RE = re.compile(r'(?:###?\s+\[?(\d{1,2}:\d{2})\]?|##\s+(\d{1,2}:\d{2}))')
+
+
+def _is_stale_batch(content: str, date: str) -> bool:
+    """返回 True 表示批次内所有时间戳均早于当前北京时间（UTC+8），应跳过。
+    若无法提取时间戳则返回 False（正常处理）。
+    """
+    matches = _TS_RE.findall(content)
+    times = [t1 or t2 for t1, t2 in matches]
+    if not times:
+        return False
+
+    now_bj = datetime.now(timezone(timedelta(hours=8)))
+    current_hm = now_bj.hour * 60 + now_bj.minute
+
+    for t in times:
+        h, m = map(int, t.split(":"))
+        if h * 60 + m >= current_hm:
+            return False
+    return True
 
 
 # ─── Offset Management (for incremental mode) ───
@@ -221,17 +244,23 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
                             f"offset {current_offset} -> {next_offset} ({len(raw)} bytes, section-aligned)")
 
                 if batch_content.strip():
-                    ok = write_to_mem0(batch_content, date, agent_id, incremental=True)
-                    if ok:
-                        batches_sent += 1
-                        # 每批成功后立即更新 offset，下次可从断点续传
+                    if _is_stale_batch(batch_content, date):
+                        logger.info(f"[{agent_id}] Skipped: all content is historical")
                         current_offset = next_offset
                         agent_offsets[date] = current_offset
                         save_offsets(offsets)
                     else:
-                        batches_failed += 1
-                        logger.warning(f"[{agent_id}] Batch {batch_num} failed, stopping to retry next run")
-                        break
+                        ok = write_to_mem0(batch_content, date, agent_id, incremental=True)
+                        if ok:
+                            batches_sent += 1
+                            # 每批成功后立即更新 offset，下次可从断点续传
+                            current_offset = next_offset
+                            agent_offsets[date] = current_offset
+                            save_offsets(offsets)
+                        else:
+                            batches_failed += 1
+                            logger.warning(f"[{agent_id}] Batch {batch_num} failed, stopping to retry next run")
+                            break
                 else:
                     current_offset = next_offset
                     agent_offsets[date] = current_offset
@@ -275,6 +304,7 @@ def _log_run_summary(results: list[tuple[str, dict]], elapsed: float):
     """打印本次运行的汇总统计日志"""
     total_memories = 0
     agents_processed = 0
+    elapsed_s = int(elapsed)
 
     for agent_id, stats in results:
         s = stats["status"]
@@ -282,17 +312,14 @@ def _log_run_summary(results: list[tuple[str, dict]], elapsed: float):
             agents_processed += 1
             mem_count = stats["memories_added"] or stats["batches_sent"]
             total_memories += mem_count
-            extra = f"新内容 {stats['new_bytes']} bytes"
-            if s == "failed":
-                extra += "，mem0 写入失败"
-            logger.info(f"[{agent_id}] 新增 {mem_count} 条记忆（{extra}）")
-        elif s == "no_diary":
-            logger.debug(f"[{agent_id}] 无日记，跳过")
+            suffix = "，mem0 写入失败" if s == "failed" else ""
+            logger.info(f"[{agent_id}] 处理日记 {stats['new_bytes']} 字节，新增 {mem_count} 条记忆，耗时 {elapsed_s}s{suffix}")
+        elif s == "stale":
+            logger.info(f"[{agent_id}] 无新内容，跳过")
         else:
-            logger.debug(f"[{agent_id}] 无新内容，跳过")
+            logger.info(f"[{agent_id}] 无新内容，跳过")
 
-    logger.info(f"--- 本次合计: 处理 {agents_processed} 个 agent，"
-                f"新增 {total_memories} 条记忆，耗时 {int(elapsed)}s ---")
+    logger.info(f"--- 本次合计：处理 {agents_processed} 个 agent，新增 {total_memories} 条记忆，耗时 {elapsed_s}s ---")
 
 
 def main():
