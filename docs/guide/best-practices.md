@@ -35,22 +35,42 @@ After optimization:
 
 ### 1. Slim Down MEMORY.md
 
+> ⚠️ **Note:** `MEMORY.md` is an **OpenClaw workspace configuration file**, located at `~/.openclaw/workspace-<agent>/MEMORY.md`. It is **not** part of mem0 Memory Service itself — it lives in your OpenClaw installation. You (or your agent) need to edit it directly in that path.
+
 `MEMORY.md` should only contain stable "index skeleton" information — project names, GitHub URLs, service ports, key paths. Dynamic state (task progress, decisions, lessons learned) should live in mem0.
+
+**Why this matters:** OpenClaw injects the full `MEMORY.md` into every session's context on startup. A bloated MEMORY.md means hundreds of wasted tokens per session, even when the current task has nothing to do with 90% of that content.
 
 **Paste this prompt to your agent:**
 
 ```
-Please review my MEMORY.md file and help me slim it down.
+Please review and slim down my MEMORY.md files.
+
+They are located at: ~/.openclaw/workspace-<agent>/MEMORY.md
+(There is one per agent — check all of them)
 
 Goals:
-1. Keep only stable, structural information: project names, GitHub URLs, service ports, key paths, team member roles
-2. Remove anything that changes frequently: task progress, PR status, recent decisions, daily notes
-3. For any removed content that's worth keeping long-term, write it to mem0 as category=experience or category=project
+1. Keep only stable, structural information:
+   - Project name + GitHub URL + local workspace path
+   - Service ports and systemd service names
+   - Key team member IDs (open_id, etc.)
+   - One-line project description
+2. Remove anything that changes frequently:
+   - Task progress, PR status, recent decisions
+   - Daily notes, workflow convention details
+   - Pitfall records, lessons learned
+   - Pending to-do items (use GitHub Issues instead)
+3. For removed content worth keeping long-term, write it to mem0:
+   - Lessons/pitfalls → category=experience (shared across agents)
+   - Project decisions → category=decision
+   - Project status → category=project
 
-After slimming MEMORY.md, tell me:
-- How many lines were removed
-- What categories of content were moved to mem0
-- What was deleted entirely (and why)
+Target: each MEMORY.md under 30 lines.
+
+After slimming, report for each agent:
+- Lines before → after
+- What was moved to mem0 (category used)
+- What was deleted entirely (why)
 ```
 
 ---
