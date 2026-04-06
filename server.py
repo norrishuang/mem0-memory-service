@@ -262,11 +262,44 @@ async def add_memory(req: AddMemoryRequest):
             raise HTTPException(status_code=500, detail=err_str)
 
 
+def _extract_results(raw):
+    """Extract results list from mem0 search response (dict or list)."""
+    if isinstance(raw, dict):
+        return raw.get("results", [])
+    return raw or []
+
+
+def _search_shared(query: str, agent_id: str = None, top_k: int = 10, run_id: str = None):
+    """Search memories with user_id='shared'. Returns a list of result dicts."""
+    kwargs = {"user_id": "shared", "limit": top_k}
+    if agent_id:
+        kwargs["agent_id"] = agent_id
+    if run_id:
+        kwargs["run_id"] = run_id
+    return _extract_results(memory.search(query, **kwargs))
+
+
+def _merge_results(primary: list, shared: list, seen_ids: set = None):
+    """Merge and deduplicate two result lists by id, sorted by score descending."""
+    if seen_ids is None:
+        seen_ids = {r.get("id") for r in primary}
+    merged = list(primary)
+    for r in shared:
+        if r.get("id") not in seen_ids:
+            r["memory_type"] = r.get("memory_type", "shared")
+            merged.append(r)
+            seen_ids.add(r.get("id"))
+    merged.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return merged
+
+
 @app.post("/memory/search")
 async def search_memory(req: SearchMemoryRequest):
     """
     Semantic search across stored memories.
     Returns ranked results with scores.
+    Also includes user_id='shared' memories (cross-agent experience) when the
+    requesting user_id is not already 'shared'.
     """
     kwargs = {"user_id": req.user_id, "limit": req.top_k}
     if req.agent_id:
@@ -279,11 +312,15 @@ async def search_memory(req: SearchMemoryRequest):
         results = await loop.run_in_executor(
             _mem0_executor, lambda: memory.search(req.query, **kwargs)
         )
-        # Apply min_score filter
-        if isinstance(results, dict):
-            raw = results.get("results", [])
-        else:
-            raw = results or []
+        raw = _extract_results(results)
+
+        # Include shared memories if user_id is not already "shared"
+        if req.user_id != "shared":
+            shared = await loop.run_in_executor(
+                _mem0_executor, lambda: _search_shared(req.query, req.agent_id, req.top_k, req.run_id)
+            )
+            raw = _merge_results(raw, shared)
+
         if req.min_score > 0.0:
             raw = [r for r in raw if r.get("score", 0.0) >= req.min_score]
         return {"status": "ok", "results": {"results": raw}}
@@ -296,6 +333,8 @@ async def search_memory(req: SearchMemoryRequest):
 async def search_combined(req: CombinedSearchRequest):
     """
     Combined search: long-term memory (no run_id) + recent short-term memory (run_id=recent dates).
+    Also includes user_id='shared' memories (cross-agent experience) when the
+    requesting user_id is not already 'shared'.
     Returns merged and deduplicated results sorted by score.
     """
     from datetime import timezone
@@ -314,9 +353,7 @@ async def search_combined(req: CombinedSearchRequest):
 
     try:
         long_results = memory.search(req.query, **kwargs_long)
-        # Handle both dict {"results": [...]} and direct list formats
-        results_list = long_results.get("results", long_results) if isinstance(long_results, dict) else long_results
-        for r in results_list:
+        for r in _extract_results(long_results):
             if r.get("id") not in seen_ids:
                 r["memory_type"] = "long_term"
                 all_results.append(r)
@@ -333,8 +370,7 @@ async def search_combined(req: CombinedSearchRequest):
             kwargs_short["agent_id"] = req.agent_id
         try:
             short_results = memory.search(req.query, **kwargs_short)
-            results_list = short_results.get("results", short_results) if isinstance(short_results, dict) else short_results
-            for r in results_list:
+            for r in _extract_results(short_results):
                 if r.get("id") not in seen_ids:
                     r["memory_type"] = "short_term"
                     r["run_id"] = run_id
@@ -343,7 +379,19 @@ async def search_combined(req: CombinedSearchRequest):
         except Exception:
             pass  # No memories for this day is normal
 
-    # 3. Sort by score, apply min_score filter, then cap at top_k
+    # 3. Include shared memories if user_id is not already "shared"
+    if req.user_id != "shared":
+        try:
+            shared = _search_shared(req.query, req.agent_id, req.top_k)
+            for r in shared:
+                if r.get("id") not in seen_ids:
+                    r["memory_type"] = "shared"
+                    all_results.append(r)
+                    seen_ids.add(r.get("id"))
+        except Exception as e:
+            logger.warning(f"Error searching shared memories: {e}")
+
+    # 4. Sort by score, apply min_score filter, then cap at top_k
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
     if req.min_score > 0.0:
         all_results = [r for r in all_results if r.get("score", 0.0) >= req.min_score]
