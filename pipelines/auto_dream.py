@@ -2,10 +2,12 @@
 """
 auto_dream.py - AutoDream 记忆沉淀（夜间自动巩固）
 
-每天 UTC 02:00 运行，对每个 agent 执行两步：
+每天 UTC 02:00 运行，对每个 agent 执行三步：
   Step 1: 读取昨日日记 → POST mem0.add(infer=True, 无 run_id) → 长期记忆
   Step 2: 找到 7 天前的短期记忆 → 逐条 re-add 到 mem0(infer=True, 无 run_id) → 删除原始短期条目
          mem0 原生决定 ADD/UPDATE/DELETE/NONE，不再手写语义搜索判断。
+  Step 3: 扫描已有长期记忆，找出语义高度相似的冗余对，用 mem0 infer=True 合并去冗余。
+         每次处理一个批次（轮转），避免单次运行时间过长。
 """
 
 import json
@@ -27,6 +29,10 @@ MAX_CONSECUTIVE_ERRORS = 3
 INTER_MEMORY_SLEEP = 0.2  # mem0 串行处理，瓶颈在 Bedrock LLM (~6s/条)，0.2s 足够防止请求堆积
 DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent))
 LOG_FILE = DATA_DIR / "auto_dream.log"
+
+CONSOLIDATION_BATCH = 50
+CONSOLIDATION_THRESHOLD = 0.85
+CONSOLIDATION_OFFSET_FILE = DATA_DIR / "auto_dream_consolidation_offset.json"
 
 OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_BASE",
                      os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
@@ -225,6 +231,115 @@ def consolidate_old_memories(agent_id: str, target_run_id: str) -> int:
     return processed
 
 
+# ─── Step 3: Long-Term Memory Consolidation ───
+
+def _load_consolidation_offset() -> dict:
+    if CONSOLIDATION_OFFSET_FILE.exists():
+        try:
+            return json.loads(CONSOLIDATION_OFFSET_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_consolidation_offset(offsets: dict):
+    CONSOLIDATION_OFFSET_FILE.write_text(json.dumps(offsets, indent=2), encoding="utf-8")
+
+
+def consolidate_longterm_memories(agent_id: str) -> int:
+    """Step 3: 扫描本批次长期记忆，找冗余对，用 mem0 infer=True 合并。返回合并对数。"""
+    # 拉取全量长期记忆
+    resp = requests.get(f"{BASE_URL}/memory/list", params={
+        "user_id": USER_ID, "agent_id": agent_id, "limit": 10000
+    }, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    all_memories = data.get("results", data) if isinstance(data, dict) else data
+    if isinstance(all_memories, dict) and "results" in all_memories:
+        all_memories = all_memories["results"]
+    if not isinstance(all_memories, list) or not all_memories:
+        logger.info(f"[{agent_id}] No long-term memories for consolidation")
+        return 0
+
+    # offset 轮转
+    offsets = _load_consolidation_offset()
+    offset = offsets.get(agent_id, 0)
+    total = len(all_memories)
+    if offset >= total:
+        offset = 0
+    batch = all_memories[offset:offset + CONSOLIDATION_BATCH]
+    new_offset = offset + CONSOLIDATION_BATCH
+    offsets[agent_id] = 0 if new_offset >= total else new_offset
+    _save_consolidation_offset(offsets)
+
+    logger.info(f"[{agent_id}] Step 3: scanning batch offset={offset}, size={len(batch)}, total={total}")
+
+    # 候选对识别
+    paired_ids = set()
+    candidates = []
+    for m in batch:
+        mid = m.get("id")
+        text = m.get("memory", "")
+        if not mid or not text or mid in paired_ids:
+            continue
+        try:
+            sr = requests.post(f"{BASE_URL}/memory/search", json={
+                "query": text, "user_id": USER_ID, "agent_id": agent_id,
+                "top_k": 3, "time_decay": False
+            }, timeout=30)
+            sr.raise_for_status()
+            sr_data = sr.json()
+            hits = sr_data.get("results", {})
+            if isinstance(hits, dict):
+                hits = hits.get("results", [])
+        except Exception as e:
+            logger.warning(f"[{agent_id}] Search failed for {mid}: {e}")
+            continue
+
+        for hit in hits:
+            hid = hit.get("id")
+            if hid == mid or hid in paired_ids:
+                continue
+            if hit.get("score", 0) > CONSOLIDATION_THRESHOLD:
+                candidates.append((m, hit))
+                paired_ids.add(mid)
+                paired_ids.add(hid)
+            break  # 只看排名第一
+
+    logger.info(f"[{agent_id}] Step 3: found {len(candidates)} candidate pairs")
+
+    # LLM 合并
+    merged = 0
+    for m1, m2 in candidates:
+        combined = f"{m1['memory']}\n{m2['memory']}"
+        try:
+            ar = requests.post(f"{BASE_URL}/memory/add", json={
+                "user_id": USER_ID, "agent_id": agent_id,
+                "text": combined, "infer": True,
+                "metadata": {"source": "auto_dream_consolidation"}
+            }, timeout=120)
+            ar.raise_for_status()
+            result = ar.json()
+            events = result.get("results", result) if isinstance(result, dict) else result
+            if isinstance(events, dict) and "results" in events:
+                events = events["results"]
+            events = events if isinstance(events, list) else [events] if isinstance(events, dict) else []
+            actions = {e.get("event") for e in events if isinstance(e, dict)}
+            if actions & {"ADD", "UPDATE"}:
+                delete_memory(m1["id"])
+                delete_memory(m2["id"])
+                merged += 1
+                logger.info(f"[{agent_id}] Merged: [{m1['memory'][:40]}...] + [{m2['memory'][:40]}...]")
+            else:
+                logger.info(f"[{agent_id}] Skipped (NONE): [{m1['memory'][:40]}...]")
+        except Exception as e:
+            logger.warning(f"[{agent_id}] Merge failed: {e}")
+        time.sleep(INTER_MEMORY_SLEEP)
+
+    logger.info(f"[{agent_id}] Step 3 complete: merged {merged} pairs")
+    return merged
+
+
 # ─── Main ───
 
 def main():
@@ -243,6 +358,7 @@ def main():
     logger.info(f"Discovered {len(workspaces)} agents: {list(workspaces.keys())}")
 
     total_consolidated = 0
+    total_merged = 0
 
     for agent_id, workspace in sorted(workspaces.items()):
         try:
@@ -252,8 +368,13 @@ def main():
             total_consolidated += consolidate_old_memories(agent_id, target_run_id)
         except Exception as e:
             logger.error(f"[{agent_id}] Fatal error: {e}", exc_info=True)
+        # Step 3: long-term memory consolidation (non-fatal)
+        try:
+            total_merged += consolidate_longterm_memories(agent_id)
+        except Exception as e:
+            logger.warning(f"[{agent_id}] Step 3 consolidation failed (non-fatal): {e}", exc_info=True)
 
-    logger.info(f"\nAutoDream complete: consolidated {total_consolidated} memories")
+    logger.info(f"\nAutoDream complete: consolidated {total_consolidated} memories, merged {total_merged} pairs")
     logger.info("=" * 80)
 
 
