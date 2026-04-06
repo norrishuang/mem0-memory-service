@@ -288,7 +288,10 @@ def consolidate_longterm_memories(agent_id: str) -> int:
                 "top_k": 3, "time_decay": False
             }, timeout=30)
             sr.raise_for_status()
-            hits = sr.json().get("results", [])
+            sr_data = sr.json()
+            hits = sr_data.get("results", {})
+            if isinstance(hits, dict):
+                hits = hits.get("results", [])
         except Exception as e:
             logger.warning(f"[{agent_id}] Search failed for {mid}: {e}")
             continue
