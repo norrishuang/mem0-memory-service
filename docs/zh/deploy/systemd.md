@@ -28,7 +28,7 @@ systemctl --user enable --now mem0-snapshot.timer
 
 ### 自动摘要（每 15 分钟）
 
-从日记文件中提取短期事件，以 `infer=False` 和 `run_id=YYYY-MM-DD` 的形式存入 mem0。日记文本直接传入，不经过自定义 LLM 提取层。
+从日记文件中提取短期事件，以 `infer=True` 和 `run_id=YYYY-MM-DD` 的形式存入 mem0。mem0 内部做 fact extraction，提炼为简洁短期记忆。
 
 ```bash
 # 使用 cron

@@ -67,7 +67,7 @@ flowchart TD
     Diary["memory/YYYY-MM-DD.md\n(diary files)"]
     MemoryMD["MEMORY.md\n(agent curated knowledge)"]
     Snap(["session_snapshot.py\n(every 5 min, diary only)"])
-    DigestToday(["auto_digest.py --today\n(every 15 min, infer=False, direct text)"])
+    DigestToday(["auto_digest.py --today\n(every 15 min, infer=True, fact extraction)"])
     Sync(["memory_sync.py\n(daily UTC 01:00, MEMORY.md)"])
     Archive(["auto_dream.py\n(AutoDream, UTC 02:00)"])
 
@@ -90,7 +90,7 @@ flowchart TD
     Agents -- "active write\n(no run_id)" --> LTM
     Agents -- "actively maintain" --> MemoryMD
     Snap --> Diary
-    Diary -- "every 15 min\n(50KB batches, infer=False)" --> DigestToday
+    Diary -- "every 15 min\n(50KB batches, infer=True)" --> DigestToday
     MemoryMD -- "daily UTC 01:00\n(hash dedup)" --> Sync
     DigestToday --> STM
     Sync --> LTM
@@ -114,7 +114,7 @@ flowchart TD
 | Component | Role |
 |---|---|
 | **session_snapshot.py** | Runs every 5 minutes. Captures **all** agent sessions (direct chat + group chats) into daily diary files. **Does not write to mem0 directly** — mem0 ingestion is handled entirely by auto_digest. |
-| **auto_digest.py --today** | Runs every 15 minutes. Reads only the **new bytes** added since the last run (tracked via `auto_digest_offset.json`). Sends content to mem0 in **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) with `infer=False` — diary text is passed directly to mem0 without a custom LLM extraction layer. Offset is persisted after each successful batch, enabling crash-safe resume. |
+| **auto_digest.py --today** | Runs every 15 minutes. Reads only the **new bytes** added since the last run (tracked via `auto_digest_offset.json`). Sends content to mem0 in **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) with `infer=True` — mem0 runs internal fact extraction to produce concise memories. Offset is persisted after each successful batch, enabling crash-safe resume. |
 | **memory_sync.py** | Runs daily at UTC 01:00. Syncs each agent's `MEMORY.md` (curated knowledge) directly to mem0 long-term memory. Hash-based dedup skips unchanged files — zero LLM cost if nothing changed. |
 | **auto_dream.py** / **AutoDream** | Runs daily at UTC 02:00. **Step 1**: reads yesterday's complete diary → `mem0.add(infer=True, no run_id)` → long-term memory. **Step 2**: for each 7-day-old short-term memory, calls `mem0.add(infer=True, no run_id)` — mem0 LLM compares against existing long-term memories and returns a decision: `ADD` (new knowledge, write), `UPDATE` (merge with existing), `DELETE` (redundant, skip write), or `NONE` (already covered). Regardless of decision, the original short-term entry is always deleted after processing. |
 | **mem0 Memory Service** | Core service. Uses AWS Bedrock LLM for memory distillation/deduplication and Bedrock Embedding for vectorization. |
@@ -125,7 +125,7 @@ flowchart TD
 
 ```
 Every 5 min   session_snapshot    — conversations → diary files  (no mem0 write)
-Every 15 min  auto_digest --today — diary new bytes → mem0 short-term  (infer=False, direct text)
+Every 15 min  auto_digest --today — diary new bytes → mem0 short-term  (infer=True, fact extraction)
 01:00         memory_sync         — MEMORY.md → mem0 long-term  (curated knowledge, instant)
 02:00         auto_dream          — Step1: yesterday diary → long-term (infer=True)
                                     Step2: 7-day-old short-term → re-add (infer=True) + delete
@@ -192,13 +192,13 @@ When mem0 receives a write with `infer=True`, it runs a semantic dedup search to
 
 | Write | Dedup scope | Effect |
 |-------|-------------|--------|
-| `auto_digest --today` (with `run_id=YYYY-MM-DD`) | Only same-day entries | Today's short-term memories are stored directly (infer=False); no LLM dedup at write time |
+| `auto_digest --today` (with `run_id=YYYY-MM-DD`) | Only same-day entries | Today's short-term memories are stored with fact extraction (infer=True); mem0 deduplicates at write time |
 | `auto_dream` consolidate (no `run_id`) | All long-term entries (no run_id) | 7-day-old short-term memories globally dedup against entire long-term history |
 
 This boundary has two important consequences:
 
 **1. Short-term writes are safe and cheap.**
-`auto_digest` runs every 15 minutes. Because it writes with `infer=False`, no LLM extraction or dedup is triggered at write time — keeping costs minimal and writes fast.
+`auto_digest` runs every 15 minutes. Because it writes with `infer=True`, mem0 runs fact extraction and dedup at write time — keeping costs minimal and writes fast.
 
 **2. Global dedup happens exactly once, at promotion time.**
 When `auto_dream` promotes a short-term memory to long-term (re-add with no `run_id`), mem0 searches across the entire long-term store. This is the moment where redundant, updated, or already-covered knowledge gets merged. The result: **long-term memory stays compact and non-redundant**, even after months of daily operation.
@@ -211,7 +211,7 @@ In practice, we observed 1,800 short-term entries consolidating down to ~78 long
 
 **`auto_digest.py --today` (every 15 min, incremental)**
 
-Runs every 15 minutes, reading only new diary content since the last run. Sends **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) to mem0 with `infer=False` — diary text is passed directly without a custom LLM extraction layer. Offset is saved after each successful batch — if the process is interrupted, the next run picks up where it left off.
+Runs every 15 minutes, reading only new diary content since the last run. Sends **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) to mem0 with `infer=True` — mem0 runs fact extraction to produce concise memories. Offset is saved after each successful batch — if the process is interrupted, the next run picks up where it left off.
 
 This provides **real-time cross-session memory**: conversations from the last ~15 minutes are available for retrieval in other sessions of the same agent.
 

@@ -28,7 +28,7 @@ systemctl --user enable --now mem0-snapshot.timer
 
 ### Auto Digest (every 15 minutes)
 
-Extracts short-term events from diary files and stores them in mem0 with `infer=False` (`run_id=YYYY-MM-DD`). Diary text is passed directly to mem0 without a custom LLM extraction layer.
+Extracts short-term events from diary files and stores them in mem0 with `infer=True` (`run_id=YYYY-MM-DD`). mem0 runs internal fact extraction to produce concise short-term memories.
 
 ```bash
 # Using cron

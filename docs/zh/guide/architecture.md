@@ -67,7 +67,7 @@ flowchart TD
     Diary["memory/YYYY-MM-DD.md\n（日记文件）"]
     MemoryMD["MEMORY.md\n（Agent 精选知识库）"]
     Snap(["session_snapshot.py\n（每 5 分钟，仅写日记）"])
-    DigestToday(["auto_digest.py --today\n（每 15 分钟，infer=False，直接传文本）"])
+    DigestToday(["auto_digest.py --today\n（每 15 分钟，infer=True，fact extraction）"])
     Sync(["memory_sync.py\n（每天 UTC 01:00，同步 MEMORY.md）"])
     Archive(["auto_dream.py\n(AutoDream，UTC 02:00)"])
 
@@ -90,7 +90,7 @@ flowchart TD
     Agents -- "主动写入\n（无 run_id）" --> LTM
     Agents -- "主动维护" --> MemoryMD
     Snap --> Diary
-    Diary -- "每 15 分钟\n（50KB 分批，infer=False）" --> DigestToday
+    Diary -- "每 15 分钟\n（50KB 分批，infer=True）" --> DigestToday
     MemoryMD -- "每天 UTC 01:00\n（hash 去重）" --> Sync
     DigestToday --> STM
     Sync --> LTM
@@ -114,7 +114,7 @@ flowchart TD
 | 组件 | 职责 |
 |---|---|
 | **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。**不直接写入 mem0**——mem0 的写入完全由 auto_digest 负责。 |
-| **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=False` 写入 mem0——日记文本直接传入，不经过自定义 LLM 提取层。每批成功后立即持久化 offset，支持断点续传。 |
+| **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=True` 写入 mem0——mem0 内部做 fact extraction，提炼为简洁记忆。每批成功后立即持久化 offset，支持断点续传。 |
 | **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于 hash 去重，文件未变化时零 LLM 调用。 |
 | **auto_dream.py** / **AutoDream** | 每天 UTC 02:00 运行。**步骤一**：读取昨日完整日记 → `mem0.add(infer=True, 无 run_id)` → 长期记忆。**步骤二**：对每条 7 天前的短期记忆，调用 `mem0.add(infer=True, 无 run_id)`——mem0 LLM 与已有长期记忆比对，返回四种决策之一：`ADD`（新知识，写入）、`UPDATE`（与已有条目合并）、`DELETE`（冗余，跳过写入）、`NONE`（已完全覆盖，跳过写入）。无论何种决策，**原始短期条目处理后始终删除**。 |
 | **mem0 Memory Service** | 核心服务。使用 AWS Bedrock LLM 进行记忆提炼与去重，使用 Bedrock Embedding 进行向量化。 |
@@ -125,7 +125,7 @@ flowchart TD
 
 ```
 每 5 分钟    session_snapshot    — 对话 → 日记文件（不写 mem0）
-每 15 分钟   auto_digest --today — 日记新增内容 → mem0 短期记忆（infer=False，直接传文本）
+每 15 分钟   auto_digest --today — 日记新增内容 → mem0 短期记忆（infer=True，fact extraction）
 01:00        memory_sync         — MEMORY.md → mem0 长期记忆（精选知识，即时生效）
 02:00        auto_dream          — 步骤一：昨日日记 → 长期记忆（infer=True）
                                    步骤二：7天前短期记忆 → 重新写入（infer=True）+ 删除
@@ -190,7 +190,7 @@ run_id = 不传           →  长期记忆（永久保存）
 
 **`auto_digest.py --today`（每 15 分钟，增量）**
 
-每 15 分钟运行一次，只读取自上次运行以来的新增内容。以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=False` 发给 mem0——日记文本直接传入，不经过自定义 LLM 提取层。每批成功后立即保存 offset——即使进程中断，下次运行也能从断点继续。
+每 15 分钟运行一次，只读取自上次运行以来的新增内容。以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=True` 发给 mem0——mem0 内部做 fact extraction，提炼为简洁记忆。每批成功后立即保存 offset——即使进程中断，下次运行也能从断点继续。
 
 这提供了**实时跨 session 记忆**：最近 ~15 分钟的对话可在同一 agent 的其他 session 中被检索到。
 
