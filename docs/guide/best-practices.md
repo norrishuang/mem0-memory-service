@@ -35,7 +35,7 @@ After optimization:
 
 ### 1. Slim Down MEMORY.md
 
-> ⚠️ **Note:** `MEMORY.md` is an **OpenClaw workspace configuration file**, located at `~/.openclaw/workspace-<agent>/MEMORY.md`. It is **not** part of mem0 Memory Service itself — it lives in your OpenClaw installation. You (or your agent) need to edit it directly in that path.
+> ⚠️ **Note:** `MEMORY.md` is an **OpenClaw workspace configuration file**, located at `~/.openclaw/workspace-&lt;agent&gt;/MEMORY.md`. It is **not** part of mem0 Memory Service itself — it lives in your OpenClaw installation. You (or your agent) need to edit it directly in that path.
 
 `MEMORY.md` should only contain stable "index skeleton" information — project names, GitHub URLs, service ports, key paths. Dynamic state (task progress, decisions, lessons learned) should live in mem0.
 
@@ -46,7 +46,7 @@ After optimization:
 ```
 Please review and slim down my MEMORY.md files.
 
-They are located at: ~/.openclaw/workspace-<agent>/MEMORY.md
+They are located at: ~/.openclaw/workspace-&lt;agent&gt;/MEMORY.md
 (There is one per agent — check all of them)
 
 Goals:
@@ -100,7 +100,7 @@ Not needed for: routine task completions, one-off operations, info already in ME
 
 ```bash
 python3 /path/to/mem0-memory-service/cli.py add \
-  --user boss --agent <your-agent-id> \
+  --user boss --agent &lt;your-agent-id&gt; \
   --text "<context>: <conclusion/solution>" \
   --metadata '{"category":"experience"}'
 ```
@@ -123,7 +123,7 @@ Please check the health of the mem0 memory pipeline:
 1. Check systemd timer status: systemctl --user status mem0-snapshot.timer mem0-digest.timer mem0-dream.timer (or equivalent)
 2. Check if today's diary file exists at memory/YYYY-MM-DD.md
 3. Check the last run time of auto_digest: look at auto_digest.log or auto_digest_offset.json
-4. Search mem0 for recent memories: python3 cli.py search --user boss --agent <your-agent> --query "recent work" --combined --recent-days 3
+4. Search mem0 for recent memories: python3 cli.py search --user boss --agent &lt;your-agent&gt; --query "recent work" --combined --recent-days 3
 5. Check if the shared pool has any entries: python3 cli.py search --user shared --query "experience"
 
 Report any gaps or issues found.
@@ -163,7 +163,7 @@ Low-quality memories are a token burden, not an asset. Periodically review and c
 ```
 Please review memory quality in mem0:
 
-1. List all long-term memories: python3 cli.py list --user boss --agent <your-agent>
+1. List all long-term memories: python3 cli.py list --user boss --agent &lt;your-agent&gt;
 2. Identify entries that are:
    - Too vague (e.g., "discussed project X" with no actionable detail)
    - Outdated (refer to resolved issues, superseded decisions)
@@ -213,7 +213,7 @@ The biggest token saving comes from replacing static Project Context files with 
 At the start of each new session, before answering the user's first message, do a targeted mem0 search based on what they're asking about. Use:
 
 python3 /path/to/mem0-memory-service/cli.py search \
-  --user boss --agent <your-agent-id> \
+  --user boss --agent &lt;your-agent-id&gt; \
   --query "<2-3 keywords from user's message>" \
   --combined --recent-days 7 --min-score 0.3
 
