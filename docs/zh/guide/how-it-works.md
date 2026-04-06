@@ -196,6 +196,97 @@ python3 cli.py add \
   --metadata '{"category":"decision"}'
 ```
 
+## 跨 Agent 记忆共享
+
+记忆服务最强大的功能之一是通过 `shared` 用户空间实现的**自动跨 Agent 知识共享**。
+
+### 工作原理
+
+当任何 Agent 写入 `category=experience` 或 `category=procedural` 的记忆时，CLI 会自动将一份副本写入共享知识库（`user_id=shared`）。无需额外操作。
+
+```bash
+# 自动同时写入该 Agent 的个人空间和 user_id=shared
+python3 cli.py add \
+  --user boss --agent dev \
+  --text "kiro-cli: 必须用 exec(pty=true, background=true, workdir=...)，不能在 command 里加 &" \
+  --metadata '{"category":"procedural"}'
+```
+
+### 搜索时自动包含共享库结果
+
+每次搜索（`/memory/search` 和 `/memory/search_combined`）都会自动包含 `user_id=shared` 的结果，无论哪个 Agent 在搜索。这在 server 层透明完成，调用方无需额外请求。
+
+```
+Agent A 写入 experience → 个人空间 + shared 库
+                                        │
+                                        ▼
+                         Agent B 搜索相关话题
+                         → 自动获得 Agent A 的经验
+                         （结果标记 memory_type="shared"）
+```
+
+这意味着：
+- 某个 Agent 发现了 bug 修复方法或正确操作流程，**所有 Agent 立刻受益**
+- 无需手动在 Agent 间传播知识
+- 共享结果带有 `"memory_type": "shared"` 标记，Agent 可以区分来源
+
+### Memory Category 参考
+
+| category | 用途 | 是否共享 | 示例 |
+|----------|------|---------|------|
+| `experience` | 踩坑记录、bug 修复、事后复盘 | ✅ 自动共享 | "PR #94 修复了搜索不包含 shared 库的问题——根因是缺少 _search_shared() 调用" |
+| `procedural` | 操作步骤指南、正确工具用法 | ✅ 自动共享 | "kiro-cli：exec(pty=true, background=true, workdir=...)——不能在 command 里加 &" |
+| `project` | 项目状态、进展 | ❌ Agent 专属 | "mem0-memory-service 端口 8230，systemd: mem0-memory.service" |
+| `decision` | 技术决策及原因 | ❌ Agent 专属 | "选 pgvector 而非 OpenSearch 用于本地开发：成本低、配置简单" |
+| `environment` | 服务地址、配置、路径 | ❌ Agent 专属 | "EC2 us-east-1，LLM 和 Embedding 使用 AWS Bedrock" |
+| `preference` | 用户习惯和沟通偏好 | ❌ Agent 专属 | "用中文沟通，简洁直接" |
+| `short_term` | 今天的讨论、临时任务记录 | ❌ Agent 专属 | "今天讨论了 issue #93 token 优化方案" |
+
+> **`experience` vs `procedural` 的区别**：`experience` = "发生了什么 + 怎么解决的"（事后复盘型）。`procedural` = "如何正确做某件事"（可复用操作指南型）。判断方法：读起来像事故复盘 → `experience`；读起来像操作手册 → `procedural`。
+
+---
+
+## 搜索排序：时间衰减加权
+
+默认情况下，搜索结果按**向量相似度**与**时间新鲜度**的混合得分排序。这避免了较旧、可能已过时的记忆排名高于更新、更相关的记忆。
+
+### 计算公式
+
+```
+final_score = 0.7 × 向量相似度 + 0.3 × 时间衰减权重
+
+时间衰减权重 = 0.5 ^ (距今天数 / 30)
+# 30 天前的记忆，时间权重约 0.5x
+# 7 天前的记忆，时间权重约 0.85x
+# 1 天前的记忆，时间权重约 0.98x
+```
+
+### 返回结果的变化
+
+启用时间衰减后，每条结果都会包含 `original_score`（原始向量相似度）和最终的混合 `score`：
+
+```json
+{
+  "id": "...",
+  "memory": "kiro-cli 不能在 command 里加 &",
+  "score": 0.87,
+  "original_score": 0.83,
+  "created_at": "2026-04-06T09:00:00Z"
+}
+```
+
+### 关闭时间衰减
+
+在请求体中传 `time_decay: false` 可以退回纯向量相似度排序（例如搜索历史记录时，时效性不重要）：
+
+```bash
+curl -X POST http://localhost:8230/memory/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "...", "user_id": "boss", "agent_id": "dev", "time_decay": false}'
+```
+
+---
+
 ## Session 启动：恢复上下文
 
 ### 为什么今天和昨天的日记文件都要读

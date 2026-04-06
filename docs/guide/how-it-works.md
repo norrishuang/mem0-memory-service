@@ -214,6 +214,97 @@ python3 cli.py add \
   --metadata '{"category":"decision"}'
 ```
 
+## Cross-Agent Memory Sharing
+
+One of the most powerful features of the memory service is **automatic cross-agent knowledge sharing** via the `shared` user space.
+
+### How It Works
+
+When any agent writes a memory with `category=experience` or `category=procedural`, the CLI automatically writes a copy to the shared knowledge pool (`user_id=shared`). No extra step is needed.
+
+```bash
+# This automatically goes to both the agent's personal space AND user_id=shared
+python3 cli.py add \
+  --user boss --agent dev \
+  --text "kiro-cli: always use exec(pty=true, background=true, workdir=...). Never add & in command." \
+  --metadata '{"category":"procedural"}'
+```
+
+### Automatic Shared Pool Inclusion on Search
+
+Every search (`/memory/search` and `/memory/search_combined`) automatically includes results from `user_id=shared`, regardless of which agent is searching. This is done transparently in the server layer — callers don't need to make a separate request.
+
+```
+Agent A writes experience → personal space + shared pool
+                                                  │
+                                                  ▼
+                                   Agent B searches for related topic
+                                   → gets Agent A's experience automatically
+                                   (result tagged memory_type="shared")
+```
+
+This means:
+- If one agent discovers a bug fix or correct workflow, **all agents benefit immediately**
+- No need to manually propagate knowledge between agents
+- Shared results are tagged with `"memory_type": "shared"` so agents can distinguish them
+
+### Memory Category Reference
+
+| category | Purpose | Shared? | Example |
+|----------|---------|---------|---------|
+| `experience` | Pitfalls discovered, bug fixes, incident post-mortems | ✅ Auto-shared | "PR #94 fixed search not including shared pool — root cause was missing _search_shared()" |
+| `procedural` | Step-by-step how-to guides, correct tool usage patterns | ✅ Auto-shared | "kiro-cli: exec(pty=true, background=true, workdir=...) — never add & in command" |
+| `project` | Project status, progress | ❌ Agent-specific | "mem0-memory-service port 8230, systemd mem0-memory.service" |
+| `decision` | Technical decisions and rationale | ❌ Agent-specific | "Chose pgvector over OpenSearch for local dev: lower cost, simpler setup" |
+| `environment` | Service addresses, configs, paths | ❌ Agent-specific | "EC2 us-east-1, AWS Bedrock for LLM and embedding" |
+| `preference` | User habits and communication preferences | ❌ Agent-specific | "Communicate in Chinese, concise and direct" |
+| `short_term` | Today's discussions, temporary task notes | ❌ Agent-specific | "Today discussed issue #93 token optimization" |
+
+> **`experience` vs `procedural`**: `experience` = "what happened + how it was resolved" (incident-driven, post-mortem style). `procedural` = "how to do X correctly" (reusable step-by-step guidance, how-to style). When in doubt: post-mortem → `experience`; how-to guide → `procedural`.
+
+---
+
+## Search Ranking: Time-Decay Weighting
+
+By default, search results are ranked by a blend of **vector similarity** and **time freshness**. This prevents older, potentially outdated memories from ranking above more recent, relevant ones.
+
+### The Formula
+
+```
+final_score = 0.7 × vector_similarity + 0.3 × time_decay_weight
+
+time_decay_weight = 0.5 ^ (age_days / 30)
+# A 30-day-old memory gets ~0.5x time weight
+# A 7-day-old memory gets ~0.85x time weight
+# A 1-day-old memory gets ~0.98x time weight
+```
+
+### What Changes in the Response
+
+When time-decay is applied, each result includes an `original_score` field (the raw vector similarity) alongside the final blended `score`:
+
+```json
+{
+  "id": "...",
+  "memory": "kiro-cli: never add & in command",
+  "score": 0.87,
+  "original_score": 0.83,
+  "created_at": "2026-04-06T09:00:00Z"
+}
+```
+
+### Disabling Time-Decay
+
+Pass `time_decay: false` in the request body if you want pure vector similarity ranking (e.g., when searching historical records where recency doesn't matter):
+
+```bash
+curl -X POST http://localhost:8230/memory/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "...", "user_id": "boss", "agent_id": "dev", "time_decay": false}'
+```
+
+---
+
 ## Session Start: Restoring Context
 
 ### Why today's AND yesterday's diary files are both needed
