@@ -2,6 +2,35 @@
 
 After deploying mem0 Memory Service, the real value comes from **tuning your agents** to actively use the memory system. This guide provides ready-to-use prompts you can paste directly to your OpenClaw agent.
 
+## Core Principle: Static vs Dynamic Separation
+
+OpenClaw loads all Project Context files (MEMORY.md, SOUL.md, AGENTS.md, etc.) into every session's context. This is the biggest source of token waste:
+
+```
+Before optimization:
+  MEMORY.md (full, 80+ lines) → loaded every session regardless of task
+  = 90% of content irrelevant to current task
+
+After optimization:
+  MEMORY.md (skeleton, ~25 lines) → stable index only
+  mem0 (dynamic memories) → recalled on-demand by relevance
+  = Only relevant context loaded per task
+```
+
+**Rule of thumb for MEMORY.md:**
+
+| Keep in MEMORY.md | Move to mem0 |
+|---|---|
+| Project name + GitHub URL + local path | PR status, recent progress |
+| Service ports, systemd names | Technical decisions and rationale |
+| Key team member IDs | Pitfalls, lessons learned |
+| One-line project description | Workflow conventions and rules |
+| | Pending tasks (use GitHub Issues instead) |
+
+**Target: MEMORY.md under 30 lines per agent. Token savings: 60–80% on MEMORY.md alone.**
+
+---
+
 ## One-Time Setup (Run After Deployment)
 
 ### 1. Slim Down MEMORY.md

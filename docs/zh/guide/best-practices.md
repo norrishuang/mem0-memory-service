@@ -2,6 +2,35 @@
 
 部署 mem0 Memory Service 之后，真正的价值来自于**调教好你的 Agent**，让它主动使用记忆系统。本文提供可直接复制粘贴给 OpenClaw Agent 的提示词。
 
+## 核心原则：静态 vs 动态分离
+
+OpenClaw 会把所有 Project Context 文件（MEMORY.md、SOUL.md、AGENTS.md 等）全量注入每次 session 的 context，这是 token 浪费的最大来源：
+
+```
+优化前：
+  MEMORY.md（完整版，80+ 行）→ 每次 session 全量加载，不管任务是什么
+  = 90% 的内容与当前任务无关
+
+优化后：
+  MEMORY.md（骨架版，~25 行）→ 只保留稳定索引
+  mem0（动态记忆）→ 按相关性按需召回
+  = 每次任务只加载相关的上下文
+```
+
+**MEMORY.md 内容取舍标准：**
+
+| 留在 MEMORY.md | 移到 mem0 |
+|---|---|
+| 项目名称 + GitHub URL + 本地路径 | PR 状态、近期进展 |
+| 服务端口、systemd 服务名 | 技术决策及原因 |
+| 关键团队成员的 ID | 踩坑记录、经验教训 |
+| 一句话项目描述 | 工作流规范细节 |
+| | 待办事项（用 GitHub Issues 代替）|
+
+**目标：每个 agent 的 MEMORY.md 控制在 30 行以内。仅此一项可节省 MEMORY.md 60–80% 的 token。**
+
+---
+
 ## 一次性初始化（部署后执行一次）
 
 ### 1. 精简 MEMORY.md
