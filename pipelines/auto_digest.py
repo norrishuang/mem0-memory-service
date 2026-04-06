@@ -3,7 +3,7 @@
 auto_digest.py - 自动从日记文件提取短期记忆
 
 两种模式：
-  默认模式：每天 UTC 01:30 运行，读取 UTC 昨天的完整日记，分批 POST 给 mem0（infer=False，直接存储不触发 LLM 推理）
+  默认模式：每天 UTC 01:30 运行，读取 UTC 昨天的完整日记，分批 POST 给 mem0（infer=True，由 mem0 内部做 fact extraction 提炼为简洁事实）
   --today 模式：每 15 分钟增量运行，读取今天日记的新增部分，分批 POST 给 mem0（由 mem0 内部做 fact extraction）
 """
 import argparse
@@ -167,7 +167,7 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
             "agent_id": agent_id,
             "run_id": run_id,
             "text": event,
-            "infer": False,
+            "infer": True,
             "metadata": metadata
         }, timeout=120)
         resp.raise_for_status()
@@ -273,7 +273,7 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
         return {"status": status, "new_bytes": total_new, "memories_added": 0, "batches_sent": batches_sent}
 
     else:
-        # 全量模式：读取整个文件，分批直接 POST 给 mem0（infer=False，直接存储不触发 LLM 推理）
+        # 全量模式：读取整个文件，分批直接 POST 给 mem0（infer=True，由 mem0 内部做 fact extraction 提炼为简洁事实）
         content = diary_file.read_text(encoding='utf-8')
         logger.info(f"[{agent_id}] Full mode: processing diary for {date} ({file_size} bytes)")
 
