@@ -226,7 +226,10 @@ python3 /path/to/mem0-memory-service/cli.py search \
 |------|---------|------|
 | 修复 bug、发现踩坑 | `experience`（共享） | `--metadata '{"category":"experience"}'` |
 | 做了技术决策 | `experience`（共享） | `--metadata '{"category":"experience"}'` |
+| 发现了工具/工作流的正确用法 | `procedural`（共享） | `--metadata '{"category":"procedural"}'` |
 | 项目状态变更 | `project`（agent 专属） | `--metadata '{"category":"project"}'` |
 | 发现配置/环境信息 | `environment` | `--metadata '{"category":"environment"}'` |
 | 今天的讨论记录 | `short_term` | `--run YYYY-MM-DD --metadata '{"category":"short_term"}'` |
 | 观察到用户偏好 | `preference` | `--metadata '{"category":"preference"}'` |
+
+> **`experience` vs `procedural` 的区别**：`experience` = "发生了什么 + 怎么解决的"（事后复盘型）。`procedural` = "如何正确做某件事"（可复用的操作指南）。判断方法：读起来像事故复盘 → `experience`；读起来像操作手册 → `procedural`。

@@ -228,7 +228,10 @@ Only inject results with score >= 0.3. Skip the search entirely if the user's re
 |-----------|-------------|---------|
 | Bug fixed, pitfall found | `experience` (shared) | `--metadata '{"category":"experience"}'` |
 | Technical decision made | `experience` (shared) | `--metadata '{"category":"experience"}'` |
+| Discovered the correct way to use a tool/workflow | `procedural` (shared) | `--metadata '{"category":"procedural"}'` |
 | Project status changed | `project` (agent-specific) | `--metadata '{"category":"project"}'` |
 | Config/env info discovered | `environment` | `--metadata '{"category":"environment"}'` |
 | Today's discussion notes | `short_term` | `--run YYYY-MM-DD --metadata '{"category":"short_term"}'` |
 | User preference observed | `preference` | `--metadata '{"category":"preference"}'` |
+
+> **`experience` vs `procedural`**: `experience` = "what happened + how it was resolved" (incident-driven). `procedural` = "how to do X correctly" (reusable step-by-step guidance). When in doubt: if it reads like a post-mortem → `experience`; if it reads like a how-to guide → `procedural`.
