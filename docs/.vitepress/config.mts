@@ -32,6 +32,7 @@ export default withMermaid(defineConfig({
                 { text: '审计日志与 Token 追踪', link: '/zh/guide/audit-logging' },
                 { text: '已知问题与 Patch', link: '/zh/guide/known-issues' },
                 { text: '设计决策记录', link: '/zh/guide/design-decisions' },
+                { text: '最佳实践', link: '/zh/guide/best-practices' },
               ]
             },
             {
@@ -79,6 +80,7 @@ export default withMermaid(defineConfig({
           { text: 'Audit Logging & Token Tracking', link: '/guide/audit-logging' },
           { text: 'Known Issues & Patches', link: '/guide/known-issues' },
           { text: 'Design Decisions', link: '/guide/design-decisions' },
+          { text: 'Best Practices', link: '/guide/best-practices' },
         ]
       },
       {
