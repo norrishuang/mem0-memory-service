@@ -164,6 +164,7 @@ class SearchMemoryRequest(BaseModel):
     run_id: Optional[str] = Field(None, description="Filter by run")
     top_k: int = Field(5, description="Max results to return", ge=1, le=100)
     min_score: float = Field(0.0, description="Minimum relevance score (0.0–1.0); results below this are dropped", ge=0.0, le=1.0)
+    time_decay: bool = Field(True, description="Re-rank results by blending vector score with time freshness (default: True)")
 
 
 class CombinedSearchRequest(BaseModel):
@@ -174,6 +175,7 @@ class CombinedSearchRequest(BaseModel):
     top_k: int = Field(5, description="Max results to return", ge=1, le=100)
     recent_days: int = Field(3, description="Number of recent days to include in search", ge=1, le=30)
     min_score: float = Field(0.0, description="Minimum relevance score (0.0–1.0); results below this are dropped", ge=0.0, le=1.0)
+    time_decay: bool = Field(True, description="Re-rank results by blending vector score with time freshness (default: True)")
 
 
 class UpdateMemoryRequest(BaseModel):
@@ -279,6 +281,34 @@ def _search_shared(query: str, agent_id: str = None, top_k: int = 10, run_id: st
     return _extract_results(memory.search(query, **kwargs))
 
 
+def _time_decay_weight(created_at_str: str, half_life_days: int = 30) -> float:
+    """Compute a time-freshness weight in [0.5, 1.0] using exponential decay.
+    half_life_days=30 means a 30-day-old memory gets weight ~0.5.
+    """
+    if not created_at_str:
+        return 1.0
+    try:
+        created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+        age_days = (datetime.now(timezone.utc) - created_at).days
+        return 0.5 ** (age_days / half_life_days)
+    except Exception:
+        return 1.0
+
+
+def _apply_time_decay(results: list, vector_weight: float = 0.7, time_weight: float = 0.3) -> list:
+    """Re-rank results by blending vector score with time-decay freshness.
+    Final score = vector_weight * score + time_weight * time_decay_weight
+    Adds 'original_score' field for transparency.
+    """
+    for r in results:
+        original = r.get("score", 0)
+        decay = _time_decay_weight(r.get("created_at", ""))
+        r["original_score"] = round(original, 4)
+        r["score"] = round(vector_weight * original + time_weight * decay, 4)
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return results
+
+
 def _merge_results(primary: list, shared: list, seen_ids: set = None):
     """Merge and deduplicate two result lists by id, sorted by score descending."""
     if seen_ids is None:
@@ -323,6 +353,8 @@ async def search_memory(req: SearchMemoryRequest):
 
         if req.min_score > 0.0:
             raw = [r for r in raw if r.get("score", 0.0) >= req.min_score]
+        if req.time_decay:
+            raw = _apply_time_decay(raw)
         return {"status": "ok", "results": {"results": raw}}
     except Exception as e:
         logger.error(f"Error searching memory: {e}", exc_info=True)
@@ -391,8 +423,11 @@ async def search_combined(req: CombinedSearchRequest):
         except Exception as e:
             logger.warning(f"Error searching shared memories: {e}")
 
-    # 4. Sort by score, apply min_score filter, then cap at top_k
-    all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    # 4. Sort by score, apply time decay, apply min_score filter, then cap at top_k
+    if req.time_decay:
+        all_results = _apply_time_decay(all_results)
+    else:
+        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
     if req.min_score > 0.0:
         all_results = [r for r in all_results if r.get("score", 0.0) >= req.min_score]
 
