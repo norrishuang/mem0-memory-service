@@ -90,7 +90,7 @@ On every heartbeat tick, the agent performs memory maintenance in order:
          Heartbeat      Every 15min    UTC 02:00      UTC 01:00
          (agent         auto_digest    auto_dream     memory_sync
           self-         --today        (Step1:        (sync
-          distills)     (infer=False,  yesterday      MEMORY.md)
+          distills)     (infer=True,   yesterday      MEMORY.md)
                         direct text)   diary +
                                        Step2: 7d STM)
               │             │              │              │
@@ -130,7 +130,7 @@ For deployment details, see [Docker Setup](../deploy/docker) or [systemd Setup](
 | Time (UTC) | Script | What it does |
 |-----------|--------|--------------|
 | Every 5 min | `pipelines/session_snapshot.py` | Capture session conversations → diary file |
-| Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=False, direct text) |
+| Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=True, fact extraction) |
 | 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Step 1: yesterday diary → mem0 long-term (infer=True); Step 2: 7-day-old short-term → re-add to long-term (infer=True) then delete |
 
@@ -141,15 +141,15 @@ For deployment details, see [Docker Setup](../deploy/docker) or [systemd Setup](
 `auto_digest.py` runs in one active mode:
 
 **`--today` mode (every 15 min, incremental)**
-Picks up new content from today's diary since the last run (offset-based). Writes to mem0 short-term memory with `infer=False` — diary text is passed directly to mem0 without a custom LLM extraction layer. Skips batches smaller than 500 bytes to avoid noisy micro-writes. On failure, retains the offset so the next run resumes from the same point.
+Picks up new content from today's diary since the last run (offset-based). Writes to mem0 short-term memory with `infer=True` — mem0 runs internal fact extraction to produce concise memories. Skips batches smaller than 500 bytes to avoid noisy micro-writes. On failure, retains the offset so the next run resumes from the same point.
 
 ```
-Every 15 min (--today):  diary new content → POST to mem0 (infer=False, direct text)
+Every 15 min (--today):  diary new content → POST to mem0 (infer=True, fact extraction)
 ```
 
 **Why short-term entries don't pollute long-term memory**
 
-`auto_digest` writes with a `run_id = YYYY-MM-DD`. This is the key that controls mem0's dedup scope: when `infer=True` is used, mem0 searches for similar memories **only within the same `run_id`**. Since `auto_digest` now uses `infer=False`, no LLM dedup is triggered at write time. Today's entries are stored directly without interfering with existing long-term memories (which have no `run_id`).
+`auto_digest` writes with a `run_id = YYYY-MM-DD`. This is the key that controls mem0's dedup scope: when `infer=True` is used, mem0 searches for similar memories **only within the same `run_id`**. Since `auto_digest` uses `infer=True`, mem0 runs fact extraction at write time. Dedup scope is bounded by `run_id`, so today's entries only interfere with same-day memories, not existing long-term memories (which have no `run_id`).
 
 This means:
 - Writing every 15 minutes is safe — no risk of silently overwriting long-term knowledge
@@ -179,7 +179,7 @@ When a session's context window grows too large, OpenClaw compresses (compacts) 
 **Tertiary: Near-real-time cross-session memory sharing**
 Each agent may have multiple concurrent sessions — a direct chat session and one or more group chat sessions. Without a sharing mechanism, what an agent says in a group chat is invisible to its direct chat session (and vice versa).
 
-`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it to mem0 short-term memory with `infer=False` (run_id=today, direct text). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
+`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it to mem0 short-term memory with `infer=True` (run_id=today, fact extraction). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
 
 Session keys are tagged in metadata (`session_key`), so you can filter by source if needed.
 
