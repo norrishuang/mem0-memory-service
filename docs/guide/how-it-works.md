@@ -2,6 +2,19 @@
 
 This page explains the end-to-end memory flow — from a conversation happening to a memory being available in the next session.
 
+## Design at a Glance
+
+| Design Principle | What It Means | Key Mechanism |
+|---|---|---|
+| **Zero blind spots across session resets** | No conversation is lost when a session ends, even mid-day | Today's diary + yesterday's diary + mem0 combined cover every time window |
+| **Two-tier memory: short-term → long-term** | Recent content stays isolated; only proven facts graduate to long-term | `auto_digest` writes with `run_id=today` (bounded dedup); `auto_dream` promotes at UTC 02:00 (global dedup) |
+| **Dual capture paths** | Agent-driven entries are high quality; automation is the safety net | Agent writes diary in real-time; `session_snapshot` captures every 5 min as fallback |
+| **Semantic retrieval, not keyword search** | Find memories by meaning, not exact phrasing | Vector similarity + time-decay blended ranking (`0.7 × score + 0.3 × recency`) |
+| **Cross-agent knowledge sharing** | Lessons learned by one agent instantly benefit all agents | `category=experience` / `procedural` auto-writes to shared pool; every search includes shared pool |
+| **Write generously, dedup automatically** | Agents don't need to worry about redundancy — mem0 handles it | `infer=True` triggers internal fact extraction; same-day dedup is bounded by `run_id` |
+| **Three paths to long-term memory** | Different sources land in long-term at different speeds | Explicit CLI write (immediate) → `memory_sync` (same day) → `auto_dream` (7-day cadence) |
+| **Multi-session, multi-agent continuity** | What happens in a group chat is visible to the direct chat session | `session_snapshot` covers all `agent:{id}:*` sessions; ~20 min propagation lag |
+
 ## The Core Problem: Sessions Are Stateless
 
 OpenClaw resets the active session daily (default 4:00 AM local time) or after an idle timeout. Every new session starts with a blank context window — no memory of previous conversations.
