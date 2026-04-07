@@ -459,6 +459,8 @@ async def list_memories(
             items = all_results["results"]
         else:
             items = all_results if isinstance(all_results, list) else []
+        # Sort by created_at descending (newest first)
+        items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
         total = len(items)
         results = items[offset:offset + limit]
         return {"status": "ok", "results": results, "total": total}
