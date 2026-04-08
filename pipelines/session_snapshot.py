@@ -109,12 +109,70 @@ def is_noise(text: str) -> bool:
     return False
 
 
+def _is_low_value_filler(text: str) -> bool:
+    """Check if text is a single-line pure confirmation with no real content."""
+    stripped = text.strip()
+    return len(stripped) < 10 and bool(re.match(
+        r'^(好的|收到|明白了?|了解|OK|Done|Sure|Got it|Yes|No|嗯|对|是的)\.?$',
+        stripped, re.IGNORECASE
+    ))
+
+
+# Patterns for metadata/system blocks to strip entirely
+_METADATA_BLOCK_RE = re.compile(
+    r'(?:Conversation info|Sender|Inbound Context|Replied message)'
+    r'\s*\(.*?\):\s*```json.*?```',
+    re.DOTALL
+)
+_RUNTIME_LINE_RE = re.compile(r'^Runtime:\s*agent=.*$', re.MULTILINE)
+_SECTION_STRIP_RE = re.compile(
+    r'^##\s+(?:Group Chat Context|Inbound Context \(trusted metadata\)|'
+    r'Dynamic Project Context|Silent Replies|Authorized Senders)'
+    r'.*?(?=^## |\Z)',
+    re.MULTILINE | re.DOTALL
+)
+_INJECTED_FILE_RE = re.compile(
+    r'^## /home/.*?\.md\b.*?(?=^## |\Z)',
+    re.MULTILINE | re.DOTALL
+)
+_LARGE_JSON_BLOCK_RE = re.compile(
+    r'```(?:json)?\s*\n(?:\s*[{\["].*\n){3,}.*?```',
+    re.DOTALL
+)
+_SHELL_OUTPUT_BLOCK_RE = re.compile(
+    r'```(?:bash|sh|shell|console|text)?\s*\n(?:.*\n){5,}?```',
+    re.DOTALL
+)
+
+
 def clean_content(text: str) -> str:
-    """清理内容"""
-    text = re.sub(r'\s+', ' ', text)
+    """Strip noise from message content before writing to diary."""
+    if not text or not text.strip():
+        return ''
+
+    # Strip system metadata blocks
+    text = _METADATA_BLOCK_RE.sub('', text)
+    text = _RUNTIME_LINE_RE.sub('', text)
+
+    # Strip injected file content and system sections
+    text = _INJECTED_FILE_RE.sub('', text)
+    text = _SECTION_STRIP_RE.sub('', text)
+
+    # Strip large JSON blobs and long shell output blocks
+    text = _LARGE_JSON_BLOCK_RE.sub('[...output omitted...]', text)
+    text = _SHELL_OUTPUT_BLOCK_RE.sub('[...output omitted...]', text)
+
+    # Collapse whitespace and truncate
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = text.strip()
+
+    if _is_low_value_filler(text):
+        return ''
+
     if len(text) > 500:
         text = text[:500] + '...'
-    return text.strip()
+    return text
 
 
 def load_agent_workspaces() -> dict[str, Path]:
@@ -394,7 +452,9 @@ def build_message_lines(messages: list, agent_id: str) -> list[str]:
     lines = []
     for msg in messages:
         role = msg.get('role', 'unknown')
-        content = msg.get('content', '')
+        content = clean_content(msg.get('content', ''))
+        if not content:
+            continue
         label = "Boss" if role == "user" else agent_id.capitalize()
         lines.append(f"- {label}: {content}")
     return lines
