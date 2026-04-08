@@ -407,7 +407,7 @@ The memory service includes a built-in web interface for browsing, searching, an
 Open your browser and navigate to:
 
 ```
-http://localhost:8230/
+http://localhost:8230/ui
 ```
 
 If the service is running on a remote server, replace `localhost` with the server IP or hostname.
