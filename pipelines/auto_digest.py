@@ -33,7 +33,8 @@ _raw_url = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 MEM0_BASE_URL = _raw_url.removesuffix("/memory/add").removesuffix("/")
 MEM0_API_URL = f"{MEM0_BASE_URL}/memory/add"
 MIN_CONTENT_BYTES = 5000   # 新增内容少于此值则跳过（避免无意义的小更新）
-BATCH_SIZE_BYTES = 200000  # 每批读取的字节数（200KB）
+MAX_BLOCK_BYTES = 100 * 1024  # Max bytes per session block before sub-splitting (100KB)
+BATCH_SIZE_BYTES = MAX_BLOCK_BYTES  # Legacy alias — only used as fallback for oversized blocks
 BATCH_SLEEP_SECS = 5      # 批次间 sleep，避免打爆 mem0
 
 # ─── Setup Logging ───
@@ -180,14 +181,48 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
 
 
 
+def split_into_session_blocks(content: str) -> list[str]:
+    """Split diary content by '### [HH:MM]' session time markers.
+
+    Each returned block starts with '### ['. If a single block exceeds
+    MAX_BLOCK_BYTES, it is sub-split at paragraph boundaries ('\\n\\n').
+    """
+    parts = re.split(r'(?=\n### \[)', content)
+    blocks: list[str] = []
+    for p in parts:
+        stripped = p.strip()
+        if not stripped:
+            continue
+        # Ensure block starts with the marker (first part may be preamble text)
+        if not stripped.startswith('### [') and blocks:
+            # Preamble before first marker — prepend to nothing, keep as own block
+            pass
+        encoded = stripped.encode('utf-8')
+        if len(encoded) <= MAX_BLOCK_BYTES:
+            blocks.append(stripped)
+        else:
+            # Sub-split oversized block at paragraph boundaries
+            sub_parts = stripped.split('\n\n')
+            chunk = sub_parts[0]
+            for sp in sub_parts[1:]:
+                candidate = chunk + '\n\n' + sp
+                if len(candidate.encode('utf-8')) > MAX_BLOCK_BYTES:
+                    if chunk.strip():
+                        blocks.append(chunk.strip())
+                    chunk = sp
+                else:
+                    chunk = candidate
+            if chunk.strip():
+                blocks.append(chunk.strip())
+    return blocks
+
+
 def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool = False,
                   offsets: dict | None = None) -> dict:
     """处理单个 agent 的日记
 
-    incremental=False: 读取整个日记文件，LLM 提炼后写 mem0（昨日全量模式）
-    incremental=True:  从 offset 开始分批读取（每批 50KB），逐批 POST 给 mem0，
-                       批次间 sleep 避免打爆服务。处理完更新 offset，下次只读新增。
-    Batches are aligned to '## ' section boundaries to avoid cutting context mid-paragraph.
+    incremental=False: 读取整个日记文件，按 ### [HH:MM] session blocks 分批 POST 给 mem0
+    incremental=True:  从 offset 开始读取新增内容，按 session blocks 逐批 POST 给 mem0
 
     Returns a stats dict: {status, new_bytes, memories_added, batches_sent}
     """
@@ -213,67 +248,51 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
             logger.info(f"[{agent_id}] New content too small ({total_new} bytes < {MIN_CONTENT_BYTES}), skipping")
             return {"status": "too_small", "new_bytes": total_new, "memories_added": 0, "batches_sent": 0}
 
-        logger.info(f"[{agent_id}] Incremental: {total_new} new bytes to process in batches of {BATCH_SIZE_BYTES}B")
+        # Read all new content and split by session blocks
+        with open(diary_file, 'r', encoding='utf-8') as f:
+            f.seek(prev_offset)
+            new_content = f.read()
 
-        current_offset = prev_offset
-        batch_num = 0
+        blocks = split_into_session_blocks(new_content)
+        logger.info(f"[{agent_id}] Incremental: {total_new} new bytes, {len(blocks)} session blocks")
+
         batches_sent = 0
         batches_failed = 0
-        total_batches = (total_new + BATCH_SIZE_BYTES - 1) // BATCH_SIZE_BYTES
+        cumulative_bytes = 0
 
-        with open(diary_file, 'rb') as f:
-            while current_offset < file_size:
-                f.seek(current_offset)
-                raw = f.read(BATCH_SIZE_BYTES)
-                if not raw:
+        for i, block in enumerate(blocks):
+            block_bytes = len(block.encode('utf-8'))
+
+            if _is_stale_batch(block, date):
+                logger.info(f"[{agent_id}] Block {i+1}/{len(blocks)}: skipped (stale)")
+                cumulative_bytes += block_bytes
+                agent_offsets[date] = prev_offset + cumulative_bytes
+                save_offsets(offsets)
+            elif block.strip():
+                ok = write_to_mem0(block, date, agent_id, incremental=True)
+                if ok:
+                    batches_sent += 1
+                    cumulative_bytes += block_bytes
+                    agent_offsets[date] = prev_offset + cumulative_bytes
+                    save_offsets(offsets)
+                else:
+                    batches_failed += 1
+                    logger.warning(f"[{agent_id}] Block {i+1} failed, stopping to retry next run")
                     break
+            else:
+                cumulative_bytes += block_bytes
+                agent_offsets[date] = prev_offset + cumulative_bytes
+                save_offsets(offsets)
 
-                # Align to next section boundary "\n## " to avoid cutting context mid-paragraph
-                lookahead_raw = f.read(4096)
-                cut = lookahead_raw.find(b'\n## ')
-                if cut >= 0:
-                    raw = raw + lookahead_raw[:cut + 1]
-                else:
-                    raw = raw + lookahead_raw
-
-                batch_content = raw.decode("utf-8", errors="replace")
-                next_offset = current_offset + len(raw)
-                batch_num += 1
-
-                logger.info(f"[{agent_id}] Batch {batch_num}/{total_batches}: "
-                            f"offset {current_offset} -> {next_offset} ({len(raw)} bytes, section-aligned)")
-
-                if batch_content.strip():
-                    if _is_stale_batch(batch_content, date):
-                        logger.info(f"[{agent_id}] Skipped: all content is historical")
-                        current_offset = next_offset
-                        agent_offsets[date] = current_offset
-                        save_offsets(offsets)
-                    else:
-                        ok = write_to_mem0(batch_content, date, agent_id, incremental=True)
-                        if ok:
-                            batches_sent += 1
-                            # 每批成功后立即更新 offset，下次可从断点续传
-                            current_offset = next_offset
-                            agent_offsets[date] = current_offset
-                            save_offsets(offsets)
-                        else:
-                            batches_failed += 1
-                            logger.warning(f"[{agent_id}] Batch {batch_num} failed, stopping to retry next run")
-                            break
-                else:
-                    current_offset = next_offset
-                    agent_offsets[date] = current_offset
-
-                if current_offset < file_size:
-                    time.sleep(BATCH_SLEEP_SECS)
+            if i < len(blocks) - 1:
+                time.sleep(BATCH_SLEEP_SECS)
 
         logger.info(f"[{agent_id}] Done: processed up to offset {agent_offsets.get(date, prev_offset)}/{file_size}")
         status = "failed" if batches_failed > 0 and batches_sent == 0 else "ok"
         return {"status": status, "new_bytes": total_new, "memories_added": 0, "batches_sent": batches_sent}
 
     else:
-        # 全量模式：读取整个文件，分批直接 POST 给 mem0（infer=True，由 mem0 内部做 fact extraction 提炼为简洁事实）
+        # 全量模式：读取整个文件，按 session blocks 分批 POST 给 mem0
         content = diary_file.read_text(encoding='utf-8')
         logger.info(f"[{agent_id}] Full mode: processing diary for {date} ({file_size} bytes)")
 
@@ -281,18 +300,17 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
             logger.info(f"[{agent_id}] Content is empty, skipping")
             return {"status": "skipped", "new_bytes": 0, "memories_added": 0, "batches_sent": 0}
 
-        content_bytes = content.encode('utf-8')
+        blocks = split_into_session_blocks(content)
         batches_sent = 0
         batches_failed = 0
-        offset = 0
-        while offset < len(content_bytes):
-            chunk = content_bytes[offset:offset + BATCH_SIZE_BYTES].decode('utf-8', errors='replace')
-            if write_to_mem0(chunk, date, agent_id, incremental=False):
-                batches_sent += 1
-            else:
-                batches_failed += 1
-            offset += BATCH_SIZE_BYTES
-            if offset < len(content_bytes):
+
+        for i, block in enumerate(blocks):
+            if block.strip():
+                if write_to_mem0(block, date, agent_id, incremental=False):
+                    batches_sent += 1
+                else:
+                    batches_failed += 1
+            if i < len(blocks) - 1:
                 time.sleep(BATCH_SLEEP_SECS)
 
         logger.info(f"[{agent_id}] Full mode done: {batches_sent} batches sent, {batches_failed} failed")
