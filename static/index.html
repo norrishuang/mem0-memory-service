@@ -66,7 +66,7 @@ select:focus,input:focus{border-color:#3b82f6}
             <span class="badge bg-blue-900 text-blue-300">{{m.agent_id||'—'}}</span>
             <span v-if="m.score" class="badge bg-green-900 text-green-300">{{(m.score*100).toFixed(0)}}%</span>
             <span class="badge" :style="isShortTerm(m)?'background:#7c2d12;color:#fdba74':'background:#581c87;color:#d8b4fe'">{{isShortTerm(m)?'短期':'长期'}}</span>
-            <span v-if="isAuto(m)" class="badge" style="background:#14532d;color:#86efac">Auto</span>
+            <span v-if="isDream(m)" class="badge" style="background:#14532d;color:#86efac">Dream</span>
             <span class="text-xs text-gray-500">{{fmtTime(m.created_at||m.updated_at)}}</span>
           </div>
           <div :class="expanded===m.id?'':'truncate-2'" class="text-sm text-gray-300 break-words">{{m.memory}}</div>
@@ -178,11 +178,11 @@ createApp({
       page.value=1;loadList()
     }
     function isShortTerm(m){return !!(m.run_id||(m.metadata&&m.metadata.category==='short_term'))}
-    function isAuto(m){const src=(m.metadata&&m.metadata.source)||'';return src.startsWith('auto_')}
+    function isDream(m){const src=(m.metadata&&m.metadata.source)||'';return src.startsWith('auto_dream')}
 
     onMounted(()=>{loadStats();loadList()})
 
-    return{memories,total,page,totalPages,loading,agentFilter,searchQuery,isSearchMode,expanded,delTarget,stats,agents,selectedStat,loadList,doSearch,clearSearch,toggle,confirmDelete,doDelete,fmtTime,clickStat,isShortTerm,isAuto}
+    return{memories,total,page,totalPages,loading,agentFilter,searchQuery,isSearchMode,expanded,delTarget,stats,agents,selectedStat,loadList,doSearch,clearSearch,toggle,confirmDelete,doDelete,fmtTime,clickStat,isShortTerm,isDream}
   }
 }).mount('#app')
 </script>
