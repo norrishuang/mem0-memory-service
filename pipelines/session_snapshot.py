@@ -109,12 +109,107 @@ def is_noise(text: str) -> bool:
     return False
 
 
+def _is_low_value_filler(text: str) -> bool:
+    """Check if text is a single-line pure confirmation with no real content."""
+    stripped = text.strip()
+    return len(stripped) < 10 and bool(re.match(
+        r'^(好的|收到|明白了?|了解|OK|Done|Sure|Got it|Yes|No|嗯|对|是的)\.?$',
+        stripped, re.IGNORECASE
+    ))
+
+
+# Patterns for metadata/system blocks to strip entirely
+_METADATA_BLOCK_RE = re.compile(
+    r'(?:Conversation info|Sender|Inbound Context|Replied message)'
+    r'\s*\(.*?\):\s*```json.*?```',
+    re.DOTALL
+)
+# Bare JSON metadata blocks (without markdown code fence)
+_METADATA_BARE_RE = re.compile(
+    r'(?:Conversation info|Sender|Inbound Context|Replied message)'
+    r'\s*\(.*?\):\s*\n?\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',
+    re.DOTALL
+)
+_RUNTIME_LINE_RE = re.compile(r'^Runtime:\s*agent=.*$', re.MULTILINE)
+# [message_id=om_xxx] envelope lines
+_MSG_ID_LINE_RE = re.compile(r'\[message_id=om_[a-f0-9]+\]\s*')
+_SECTION_STRIP_RE = re.compile(
+    r'^##\s+(?:Group Chat Context|Inbound Context \(trusted metadata\)|'
+    r'Dynamic Project Context|Silent Replies|Authorized Senders)'
+    r'.*?(?=^## |\Z)',
+    re.MULTILINE | re.DOTALL
+)
+_INJECTED_FILE_RE = re.compile(
+    r'^## /home/.*?\.md\b.*?(?=^## |\Z)',
+    re.MULTILINE | re.DOTALL
+)
+_LARGE_JSON_BLOCK_RE = re.compile(
+    r'```(?:json)?\s*\n(?:\s*[{\["\'].*\n){3,}.*?```',
+    re.DOTALL
+)
+_SHELL_OUTPUT_BLOCK_RE = re.compile(
+    r'```(?:bash|sh|shell|console|text)?\s*\n(?:.*\n){5,}?```',
+    re.DOTALL
+)
+
+# tool output line detection
+_TOOL_OUTPUT_LINE_RE = re.compile(
+    r'^(?:!|\$|>|/[a-z/]'
+    r'|[A-Z][a-zA-Z0-9-]+\.(?:service|timer|target|socket)\s'
+    r'|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}'
+    r'|(?:loaded|active|inactive|running|failed|dead|enabled|disabled)\s'
+    r'|(?:From|remote:|To |warning:|error:|fatal:|hint:))',
+    re.IGNORECASE
+)
+
+
+def _looks_like_tool_output(text):
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if len(lines) < 6:
+        return False
+    match_count = sum(1 for l in lines if _TOOL_OUTPUT_LINE_RE.match(l.strip()))
+    return match_count / len(lines) > 0.45
+
+
 def clean_content(text: str) -> str:
-    """清理内容"""
-    text = re.sub(r'\s+', ' ', text)
-    if len(text) > 500:
-        text = text[:500] + '...'
-    return text.strip()
+    """Strip noise from message content before writing to diary."""
+    if not text or not text.strip():
+        return ''
+
+    # Strip [message_id=...] envelope lines
+    text = _MSG_ID_LINE_RE.sub('', text)
+
+    # Strip system metadata blocks (fenced and bare)
+    text = _METADATA_BLOCK_RE.sub('', text)
+    text = _METADATA_BARE_RE.sub('', text)
+    text = _RUNTIME_LINE_RE.sub('', text)
+
+    # Strip injected file content and system sections
+    text = _INJECTED_FILE_RE.sub('', text)
+    text = _SECTION_STRIP_RE.sub('', text)
+
+    # Strip large JSON blobs and long shell output blocks (fenced)
+    text = _LARGE_JSON_BLOCK_RE.sub('[...output omitted...]', text)
+    text = _SHELL_OUTPUT_BLOCK_RE.sub('[...output omitted...]', text)
+
+    # Collapse whitespace
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = text.strip()
+
+    if _is_low_value_filler(text):
+        return ''
+
+    # bare tool output: keep first 3 lines
+    if _looks_like_tool_output(text):
+        lines = [l for l in text.splitlines() if l.strip()]
+        head = '\n'.join(lines[:3])
+        omit = len(lines) - 3
+        return (head + '\n[...' + str(omit) + ' lines of output omitted...]') if omit > 0 else head
+
+    if len(text) > 800:
+        text = text[:800] + '...'
+    return text
 
 
 def load_agent_workspaces() -> dict[str, Path]:
@@ -356,7 +451,16 @@ def read_session_messages(session_path: Path, offset: int = 0) -> tuple[list, in
                 if event.get('type') == 'message':
                     msg = event.get('message', {})
                     role = msg.get('role', 'unknown')
+                    # Skip tool calls/results — raw output, not human-readable diary content
+                    if role in ('toolResult', 'tool'):
+                        continue
                     content_list = msg.get('content', [])
+                    # Skip assistant messages that are pure tool calls (no text content)
+                    if role == 'assistant' and all(
+                        isinstance(c, dict) and c.get('type') in ('toolCall', 'tool_use')
+                        for c in content_list if isinstance(c, dict)
+                    ) and content_list:
+                        continue
                     text = ""
                     for c in content_list:
                         if not isinstance(c, dict):
@@ -394,7 +498,9 @@ def build_message_lines(messages: list, agent_id: str) -> list[str]:
     lines = []
     for msg in messages:
         role = msg.get('role', 'unknown')
-        content = msg.get('content', '')
+        content = clean_content(msg.get('content', ''))
+        if not content:
+            continue
         label = "Boss" if role == "user" else agent_id.capitalize()
         lines.append(f"- {label}: {content}")
     return lines
