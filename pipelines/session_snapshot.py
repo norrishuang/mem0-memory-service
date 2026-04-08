@@ -124,7 +124,15 @@ _METADATA_BLOCK_RE = re.compile(
     r'\s*\(.*?\):\s*```json.*?```',
     re.DOTALL
 )
+# Bare JSON metadata blocks (without markdown code fence)
+_METADATA_BARE_RE = re.compile(
+    r'(?:Conversation info|Sender|Inbound Context|Replied message)'
+    r'\s*\(.*?\):\s*\n?\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',
+    re.DOTALL
+)
 _RUNTIME_LINE_RE = re.compile(r'^Runtime:\s*agent=.*$', re.MULTILINE)
+# [message_id=om_xxx] envelope lines
+_MSG_ID_LINE_RE = re.compile(r'\[message_id=om_[a-f0-9]+\]\s*')
 _SECTION_STRIP_RE = re.compile(
     r'^##\s+(?:Group Chat Context|Inbound Context \(trusted metadata\)|'
     r'Dynamic Project Context|Silent Replies|Authorized Senders)'
@@ -136,7 +144,7 @@ _INJECTED_FILE_RE = re.compile(
     re.MULTILINE | re.DOTALL
 )
 _LARGE_JSON_BLOCK_RE = re.compile(
-    r'```(?:json)?\s*\n(?:\s*[{\["].*\n){3,}.*?```',
+    r'```(?:json)?\s*\n(?:\s*[{\["\'].*\n){3,}.*?```',
     re.DOTALL
 )
 _SHELL_OUTPUT_BLOCK_RE = re.compile(
@@ -144,25 +152,47 @@ _SHELL_OUTPUT_BLOCK_RE = re.compile(
     re.DOTALL
 )
 
+# tool output line detection
+_TOOL_OUTPUT_LINE_RE = re.compile(
+    r'^(?:!|\$|>|/[a-z/]'
+    r'|[A-Z][a-zA-Z0-9-]+\.(?:service|timer|target|socket)\s'
+    r'|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}'
+    r'|(?:loaded|active|inactive|running|failed|dead|enabled|disabled)\s'
+    r'|(?:From|remote:|To |warning:|error:|fatal:|hint:))',
+    re.IGNORECASE
+)
+
+
+def _looks_like_tool_output(text):
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if len(lines) < 6:
+        return False
+    match_count = sum(1 for l in lines if _TOOL_OUTPUT_LINE_RE.match(l.strip()))
+    return match_count / len(lines) > 0.45
+
 
 def clean_content(text: str) -> str:
     """Strip noise from message content before writing to diary."""
     if not text or not text.strip():
         return ''
 
-    # Strip system metadata blocks
+    # Strip [message_id=...] envelope lines
+    text = _MSG_ID_LINE_RE.sub('', text)
+
+    # Strip system metadata blocks (fenced and bare)
     text = _METADATA_BLOCK_RE.sub('', text)
+    text = _METADATA_BARE_RE.sub('', text)
     text = _RUNTIME_LINE_RE.sub('', text)
 
     # Strip injected file content and system sections
     text = _INJECTED_FILE_RE.sub('', text)
     text = _SECTION_STRIP_RE.sub('', text)
 
-    # Strip large JSON blobs and long shell output blocks
+    # Strip large JSON blobs and long shell output blocks (fenced)
     text = _LARGE_JSON_BLOCK_RE.sub('[...output omitted...]', text)
     text = _SHELL_OUTPUT_BLOCK_RE.sub('[...output omitted...]', text)
 
-    # Collapse whitespace and truncate
+    # Collapse whitespace
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r'[ \t]+', ' ', text)
     text = text.strip()
@@ -170,8 +200,15 @@ def clean_content(text: str) -> str:
     if _is_low_value_filler(text):
         return ''
 
-    if len(text) > 500:
-        text = text[:500] + '...'
+    # bare tool output: keep first 3 lines
+    if _looks_like_tool_output(text):
+        lines = [l for l in text.splitlines() if l.strip()]
+        head = '\n'.join(lines[:3])
+        omit = len(lines) - 3
+        return (head + '\n[...' + str(omit) + ' lines of output omitted...]') if omit > 0 else head
+
+    if len(text) > 800:
+        text = text[:800] + '...'
     return text
 
 
@@ -414,7 +451,16 @@ def read_session_messages(session_path: Path, offset: int = 0) -> tuple[list, in
                 if event.get('type') == 'message':
                     msg = event.get('message', {})
                     role = msg.get('role', 'unknown')
+                    # Skip tool calls/results — raw output, not human-readable diary content
+                    if role in ('toolResult', 'tool'):
+                        continue
                     content_list = msg.get('content', [])
+                    # Skip assistant messages that are pure tool calls (no text content)
+                    if role == 'assistant' and all(
+                        isinstance(c, dict) and c.get('type') in ('toolCall', 'tool_use')
+                        for c in content_list if isinstance(c, dict)
+                    ) and content_list:
+                        continue
                     text = ""
                     for c in content_list:
                         if not isinstance(c, dict):
