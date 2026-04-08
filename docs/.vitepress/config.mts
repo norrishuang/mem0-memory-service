@@ -27,6 +27,7 @@ export default withMermaid(defineConfig({
               items: [
                 { text: '安装与部署', link: '/zh/guide/getting-started' },
                 { text: '工作原理', link: '/zh/guide/how-it-works' },
+                { text: '📊 可视化监控', link: '/zh/guide/memory-dashboard' },
                 { text: '系统架构', link: '/zh/guide/architecture' },
                 { text: '配置说明', link: '/zh/guide/configuration' },
                 { text: '审计日志与 Token 追踪', link: '/zh/guide/audit-logging' },
@@ -75,6 +76,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Introduction & Deployment', link: '/guide/getting-started' },
           { text: 'How It Works', link: '/guide/how-it-works' },
+          { text: '📊 Memory Dashboard', link: '/guide/memory-dashboard' },
           { text: 'Architecture', link: '/guide/architecture' },
           { text: 'Configuration', link: '/guide/configuration' },
           { text: 'Audit Logging & Token Tracking', link: '/guide/audit-logging' },
