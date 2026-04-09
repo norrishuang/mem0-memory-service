@@ -421,7 +421,7 @@ async def search_combined(req: CombinedSearchRequest):
     for i in range(req.recent_days):
         day = today - timedelta(days=i)
         run_id = day.strftime("%Y-%m-%d")
-        kwargs_short = {"user_id": req.user_id, "limit": st_top_k * 2, "run_id": run_id}
+        kwargs_short = {"user_id": req.user_id, "limit": st_top_k, "run_id": run_id}
         if req.agent_id:
             kwargs_short["agent_id"] = req.agent_id
         try:
