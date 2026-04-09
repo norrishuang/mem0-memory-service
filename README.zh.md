@@ -152,7 +152,7 @@ docker compose up -d
 
 > 💡 EC2 用户：将 IAM Role 附加到实例即可，无需在 `.env` 中配置 Access Key。
 
-或使用交互式安装器：`./install.sh`（检查 Docker、引导 `.env` 配置、启动容器、验证健康状态）。
+或使用交互式安装器：`./tools/install.sh`（检查 Docker、引导 `.env` 配置、启动容器、验证健康状态）。
 
 所有自动化 pipeline（会话快照、digest、记忆同步、dream）都在 Docker pipeline 容器内运行，无需单独配置定时器。
 
@@ -348,8 +348,8 @@ BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"    # LLM 模型
 
 ```bash
 # 安装 systemd timer（每天 UTC 02:00 运行）
-sudo cp mem0-dream.service /etc/systemd/system/
-sudo cp mem0-dream.timer /etc/systemd/system/
+sudo cp systemd/mem0-dream.service /etc/systemd/system/
+sudo cp systemd/mem0-dream.timer /etc/systemd/system/
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-dream.timer
@@ -591,26 +591,33 @@ python3 migrate_memory_md.py
 
 ```
 mem0-memory-service/
-├── install.sh              # 一键安装脚本
 ├── server.py               # FastAPI 主服务
 ├── config.py               # 配置管理（读取 .env）
 ├── cli.py                  # 命令行客户端
+├── requirements.txt        # Python 依赖
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example            # 配置模板
+├── pipelines/
+│   ├── auto_digest.py      # 自动从日记提取短期记忆（每15分钟）
+│   ├── auto_dream.py       # 每晚记忆整合：日记→长期记忆（每天 UTC 02:00）
+│   ├── session_snapshot.py # 实时保存 session 对话到日记（每5分钟）
+│   ├── memory_sync.py      # 记忆同步管道
+│   └── audit_shipper.py    # 审计日志上传
+├── systemd/
+│   ├── mem0-memory.service # systemd 服务模板
+│   ├── mem0-dream.service  # Auto-dream 服务
+│   ├── mem0-dream.timer    # Auto-dream 定时器
+│   └── ...                 # 其他 systemd 单元
+├── tools/
+│   ├── install.sh          # 一键安装脚本
+│   ├── update-services.sh  # 更新 systemd 单元
+│   └── patch_minimax_support.py  # MiniMax 模型 patch 脚本
+├── docs/
+│   ├── PATCHES.md          # mem0 已知问题和 patch 记录
+│   └── ...                 # 其他文档
 ├── skill/
 │   └── SKILL.md            # OpenClaw Skill 定义
-├── migrate_memory_md.py    # MEMORY.md 迁移工具
-├── test_connection.py      # 连通性测试
-├── auto_digest.py          # 自动从日记提取短期记忆（每15分钟，--today 增量模式；每日全量模式已由 auto_dream Step1 取代）
-├── session_snapshot.py     # 实时保存session对话到日记（每5分钟）
-├── auto_dream.py           # 每晚记忆整合：日记→长期记忆 + 短期记忆清理（每天 UTC 02:00）
-├── systemd/
-│   ├── mem0-snapshot.service   # systemd service
-│   ├── mem0-snapshot.timer     # systemd timer (每5分钟)
-│   └── ...                 # 其他 systemd 单元
-├── mem0-memory.service     # systemd 服务模板
-├── requirements.txt        # Python 依赖
-├── .env.example            # 配置模板
-├── patch_s3vectors_filter.py # S3Vectors filter 格式 patch 脚本
-├── PATCHES.md              # mem0 已知问题和 patch 记录
 └── README.md
 ```
 
@@ -624,7 +631,7 @@ mem0-memory-service/
 | Converse API temperature + top_p 冲突 (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | ✅ Merged via [#4469](https://github.com/mem0ai/mem0/pull/4469) |
 | S3Vectors `query_vectors` filter 格式错误 | [#4554](https://github.com/mem0ai/mem0/pull/4554) | 待合并 |
 
-在 PR 合并前需要手动 patch，详见 [PATCHES.md](./PATCHES.md)。
+在 PR 合并前需要手动 patch，详见 [PATCHES.md](./docs/PATCHES.md)。
 
 ## License
 

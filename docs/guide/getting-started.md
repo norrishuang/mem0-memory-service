@@ -66,7 +66,7 @@ When you're ready to scale, you can **smoothly migrate** to S3 Vectors or OpenSe
 >
 > Steps:
 > 1. `git clone https://github.com/norrishuang/mem0-memory-service.git && cd mem0-memory-service`
-> 2. Run `./install.sh` — it will auto-detect your AWS Region and use local pgvector (no cloud vector store needed)
+> 2. Run `./tools/install.sh` — it will auto-detect your AWS Region and use local pgvector (no cloud vector store needed)
 > 3. Verify: `curl http://localhost:8230/health`
 > 4. Enable the skill in OpenClaw Settings → Skills → mem0-memory
 

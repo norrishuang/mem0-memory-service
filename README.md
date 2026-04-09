@@ -154,7 +154,7 @@ docker compose up -d
 
 > 💡 EC2 users: attach an IAM Role to the instance — no Access Key needed in `.env`.
 
-Or use the interactive installer: `./install.sh` (checks Docker, guides you through `.env` config, starts containers, verifies health).
+Or use the interactive installer: `./tools/install.sh` (checks Docker, guides you through `.env` config, starts containers, verifies health).
 
 All automation pipelines (session snapshot, digest, memory sync, dream) run inside the Docker pipeline container — no separate timer setup needed.
 
@@ -350,8 +350,8 @@ The `auto_dream.py` script runs daily at UTC 02:00, consolidating short-term mem
 
 ```bash
 # Install systemd timer (runs daily at UTC 02:00)
-sudo cp mem0-dream.service /etc/systemd/system/
-sudo cp mem0-dream.timer /etc/systemd/system/
+sudo cp systemd/mem0-dream.service /etc/systemd/system/
+sudo cp systemd/mem0-dream.timer /etc/systemd/system/
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-dream.timer
@@ -593,26 +593,33 @@ python3 migrate_memory_md.py
 
 ```
 mem0-memory-service/
-├── install.sh              # One-click install script
 ├── server.py               # FastAPI main service
 ├── config.py               # Configuration management (reads .env)
 ├── cli.py                  # Command-line client
+├── requirements.txt        # Python dependencies
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example            # Configuration template
+├── pipelines/
+│   ├── auto_digest.py      # Auto-extract short-term memories from diary (every 15 min)
+│   ├── auto_dream.py       # Nightly memory consolidation: diary→long-term (daily UTC 02:00)
+│   ├── session_snapshot.py # Real-time session conversation saving (every 5 min)
+│   ├── memory_sync.py      # Memory sync pipeline
+│   └── audit_shipper.py    # Audit log shipper
+├── systemd/
+│   ├── mem0-memory.service # systemd service template
+│   ├── mem0-dream.service  # Auto-dream service
+│   ├── mem0-dream.timer    # Auto-dream timer
+│   └── ...                 # Other systemd units
+├── tools/
+│   ├── install.sh          # One-click install script
+│   ├── update-services.sh  # Update systemd units
+│   └── patch_minimax_support.py  # MiniMax model patch script
+├── docs/
+│   ├── PATCHES.md          # mem0 known issues and patch records
+│   └── ...                 # Other documentation
 ├── skill/
 │   └── SKILL.md            # OpenClaw Skill definition
-├── migrate_memory_md.py    # MEMORY.md migration tool
-├── test_connection.py      # Connectivity test
-├── auto_digest.py          # Auto-extract short-term memories from diary (every 15 min, --today incremental mode only; daily full mode superseded by auto_dream Step 1)
-├── session_snapshot.py     # Real-time session conversation saving (every 5 min)
-├── auto_dream.py           # Nightly memory consolidation: diary→long-term + short-term cleanup (daily UTC 02:00)
-├── systemd/
-│   ├── mem0-snapshot.service   # systemd service
-│   ├── mem0-snapshot.timer     # systemd timer (every 5 min)
-│   └── ...                 # Other systemd units
-├── mem0-memory.service     # systemd service template
-├── requirements.txt        # Python dependencies
-├── .env.example            # Configuration template
-├── patch_s3vectors_filter.py # S3Vectors filter format patch script
-├── PATCHES.md              # mem0 known issues and patch records
 └── README.md
 ```
 
@@ -626,7 +633,7 @@ When using AWS Bedrock + OpenSearch, mem0 has two known bugs. We have submitted 
 | Converse API temperature + top_p conflict (Claude Haiku 4.5) | [#4393](https://github.com/mem0ai/mem0/pull/4393) | ✅ Merged via [#4469](https://github.com/mem0ai/mem0/pull/4469) |
 | S3Vectors `query_vectors` invalid filter format | [#4554](https://github.com/mem0ai/mem0/pull/4554) | Pending merge |
 
-Manual patching is required before the PRs are merged. See [PATCHES.md](./PATCHES.md) for details.
+Manual patching is required before the PRs are merged. See [PATCHES.md](./docs/PATCHES.md) for details.
 
 ## License
 

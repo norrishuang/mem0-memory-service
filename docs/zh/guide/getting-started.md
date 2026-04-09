@@ -64,7 +64,7 @@ OpenClaw Agents (agent1, agent2, ...)
 >
 > 步骤：
 > 1. `git clone https://github.com/norrishuang/mem0-memory-service.git && cd mem0-memory-service`
-> 2. 运行 `./install.sh` — 自动检测 AWS Region，使用本地 pgvector（无需云端向量数据库）
+> 2. 运行 `./tools/install.sh` — 自动检测 AWS Region，使用本地 pgvector（无需云端向量数据库）
 > 3. 验证：`curl http://localhost:8230/health`
 > 4. 在 OpenClaw 设置 → Skills → 启用 mem0-memory
 
