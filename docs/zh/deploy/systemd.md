@@ -5,7 +5,7 @@
 ## 主服务
 
 ```bash
-sudo cp mem0-memory.service /etc/systemd/system/
+sudo cp systemd/mem0-memory.service /etc/systemd/system/
 # 根据需要编辑 User/WorkingDirectory/EnvironmentFile 路径
 sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-memory
@@ -42,8 +42,8 @@ systemctl --user enable --now mem0-snapshot.timer
 - **Step 2**：对每条超过 7 天的短期记忆，调用 `mem0.add(infer=True, 无 run_id)` — mem0 决策 ADD/UPDATE/DELETE/NONE — 然后删除原始条目
 
 ```bash
-sudo cp mem0-dream.service /etc/systemd/system/
-sudo cp mem0-dream.timer /etc/systemd/system/
+sudo cp systemd/mem0-dream.service /etc/systemd/system/
+sudo cp systemd/mem0-dream.timer /etc/systemd/system/
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-dream.timer

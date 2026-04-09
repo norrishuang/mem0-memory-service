@@ -84,7 +84,7 @@ Both default to `minimax.minimax-m2.5`. Here's a comparison of supported models 
 ::: warning
 **MiniMax requires a patch.** Before using any `minimax.*` model, run:
 ```bash
-python3 patch_minimax_support.py
+python3 tools/patch_minimax_support.py
 ```
 See [Known Issues](./known-issues.md#pr-4609-minimax-models-not-recognized-on-aws-bedrock) for details.
 :::

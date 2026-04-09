@@ -44,7 +44,7 @@ The AWS identity used (IAM Role or Access Key) must have the following permissio
 
 ## 🚀 Quick Trial: Local pgvector (Demo / Local Dev, No Cloud Required)
 
-> **Quickest path**: Run `./install.sh` — auto-detects your AWS Region and sets up everything with defaults. See [One-Line Deploy](../guide/getting-started#one-line-deploy).
+> **Quickest path**: Run `./tools/install.sh` — auto-detects your AWS Region and sets up everything with defaults. See [One-Line Deploy](../guide/getting-started#one-line-deploy).
 
 If you just want to try mem0 Memory Service locally without setting up S3 Vectors or OpenSearch, use the built-in PostgreSQL + pgvector backend. No AWS vector store credentials needed — only AWS Bedrock (LLM + Embedding) is required.
 
@@ -277,7 +277,7 @@ If you installed via `install.sh`, use the built-in `--update` flag:
 
 ```bash
 cd /path/to/mem0-memory-service
-./install.sh --update
+./tools/install.sh --update
 ```
 
 This will:

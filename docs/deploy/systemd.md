@@ -5,7 +5,7 @@ The service uses systemd for process management and scheduled tasks.
 ## Main Service
 
 ```bash
-sudo cp mem0-memory.service /etc/systemd/system/
+sudo cp systemd/mem0-memory.service /etc/systemd/system/
 # Edit User/WorkingDirectory/EnvironmentFile paths as needed
 sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-memory
@@ -42,8 +42,8 @@ Runs nightly consolidation in two steps:
 - **Step 2**: For each 7-day-old short-term memory, calls `mem0.add(infer=True, no run_id)` — mem0 decides ADD/UPDATE/DELETE/NONE — then deletes the original entry
 
 ```bash
-sudo cp mem0-dream.service /etc/systemd/system/
-sudo cp mem0-dream.timer /etc/systemd/system/
+sudo cp systemd/mem0-dream.service /etc/systemd/system/
+sudo cp systemd/mem0-dream.timer /etc/systemd/system/
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now mem0-dream.timer
