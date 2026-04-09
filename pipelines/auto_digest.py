@@ -249,9 +249,18 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
             return {"status": "too_small", "new_bytes": total_new, "memories_added": 0, "batches_sent": 0}
 
         # Read all new content and split by session blocks
-        with open(diary_file, 'r', encoding='utf-8') as f:
+        # Use binary mode + manual UTF-8 boundary alignment to avoid
+        # UnicodeDecodeError when prev_offset lands mid-character (#125)
+        with open(diary_file, 'rb') as f:
             f.seek(prev_offset)
-            new_content = f.read()
+            raw = f.read()
+        # Align to valid UTF-8 start byte (skip continuation bytes 0x80-0xBF)
+        skip = 0
+        while skip < len(raw) and (raw[skip] & 0xC0) == 0x80:
+            skip += 1
+        if skip:
+            logger.warning(f"[{agent_id}] offset {prev_offset} landed mid-char, skipped {skip} bytes to align")
+        new_content = raw[skip:].decode('utf-8', errors='replace')
 
         blocks = split_into_session_blocks(new_content)
         logger.info(f"[{agent_id}] Incremental: {total_new} new bytes, {len(blocks)} session blocks")
