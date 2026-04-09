@@ -184,10 +184,10 @@ def main():
     p_search.add_argument("--query", required=True)
     p_search.add_argument("--top-k", type=int, default=5,
                           help="Max results to return (default: 5)")
-    p_search.add_argument("--min-score", type=float, default=0.0,
+    p_search.add_argument("--min-score", type=float, default=0.5,
                           help="Minimum relevance score to include (0.0–1.0). "
                                "Results below this threshold are dropped. "
-                               "Recommended: 0.3–0.5 to filter low-relevance noise.")
+                               "Default: 0.5 (filters low-relevance noise).")
     p_search.add_argument("--combined", action="store_true",
                           help="Combined search: long-term + recent short-term memories")
     p_search.add_argument("--recent-days", type=int, default=3,
