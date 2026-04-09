@@ -168,14 +168,21 @@ class SearchMemoryRequest(BaseModel):
 
 
 class CombinedSearchRequest(BaseModel):
-    """Combined search: long-term + recent short-term memories."""
+    """Combined search: long-term + recent short-term memories.
+
+    Time decay is applied only to short-term memories (they have natural recency preference).
+    Long-term memories are ranked by vector score only — they represent durable knowledge
+    that should not be penalized by age (especially auto_dream consolidated content).
+    """
     query: str = Field(..., description="Natural language query")
     user_id: str = Field(..., description="User identifier")
     agent_id: Optional[str] = Field(None, description="Filter by agent")
-    top_k: int = Field(5, description="Max results to return", ge=1, le=100)
+    top_k: int = Field(5, description="Max results to return (legacy, used as fallback)", ge=1, le=100)
+    long_term_top_k: Optional[int] = Field(None, description="Max long-term memories to return. Defaults to top_k//2 if not set.", ge=1, le=100)
+    short_term_top_k: Optional[int] = Field(None, description="Max short-term memories to return. Defaults to top_k//2 if not set.", ge=1, le=100)
     recent_days: int = Field(3, description="Number of recent days to include in search", ge=1, le=30)
     min_score: float = Field(0.0, description="Minimum relevance score (0.0–1.0); results below this are dropped", ge=0.0, le=1.0)
-    time_decay: bool = Field(True, description="Re-rank results by blending vector score with time freshness (default: True)")
+    time_decay: bool = Field(True, description="Apply time decay to short-term memories only (default: True). Long-term memories always use pure vector score.")
 
 
 class UpdateMemoryRequest(BaseModel):
@@ -367,71 +374,95 @@ async def search_combined(req: CombinedSearchRequest):
     Combined search: long-term memory (no run_id) + recent short-term memory (run_id=recent dates).
     Also includes user_id='shared' memories (cross-agent experience) when the
     requesting user_id is not already 'shared'.
-    Returns merged and deduplicated results sorted by score.
+
+    Key design: time decay is applied ONLY to short-term memories.
+    Long-term memories (including auto_dream consolidated content) are ranked
+    by pure vector score — durable knowledge should not be penalized by age.
+    Results from each layer are capped independently before merging.
     """
     from datetime import timezone
+
+    # Resolve per-layer top_k (fallback: split top_k evenly)
+    half = max(1, req.top_k // 2)
+    lt_top_k = req.long_term_top_k if req.long_term_top_k is not None else half
+    st_top_k = req.short_term_top_k if req.short_term_top_k is not None else half
 
     # Beijing time
     tz_beijing = timezone(timedelta(hours=8))
     today = datetime.now(tz_beijing).date()
 
-    all_results = []
-    seen_ids = set()
+    seen_ids: set = set()
+    long_term_results = []
+    short_term_results = []
 
-    # 1. Search long-term memories (no run_id)
-    kwargs_long = {"user_id": req.user_id, "limit": req.top_k}
+    # 1. Search long-term memories (no run_id) — pure vector score, no time decay
+    kwargs_long = {"user_id": req.user_id, "limit": lt_top_k * 3}  # fetch more, cap after filter
     if req.agent_id:
         kwargs_long["agent_id"] = req.agent_id
 
     try:
-        long_results = memory.search(req.query, **kwargs_long)
-        for r in _extract_results(long_results):
+        raw_long = _extract_results(memory.search(req.query, **kwargs_long))
+        for r in raw_long:
             if r.get("id") not in seen_ids:
                 r["memory_type"] = "long_term"
-                all_results.append(r)
+                r["original_score"] = round(r.get("score", 0), 4)
+                long_term_results.append(r)
                 seen_ids.add(r.get("id"))
     except Exception as e:
         logger.warning(f"Error searching long-term memories: {e}")
 
-    # 2. Search recent N days of short-term memories
+    # Sort long-term by pure vector score, apply min_score, cap at lt_top_k
+    long_term_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    if req.min_score > 0.0:
+        long_term_results = [r for r in long_term_results if r.get("score", 0.0) >= req.min_score]
+    long_term_results = long_term_results[:lt_top_k]
+
+    # 2. Search recent N days of short-term memories — apply time decay
     for i in range(req.recent_days):
         day = today - timedelta(days=i)
         run_id = day.strftime("%Y-%m-%d")
-        kwargs_short = {"user_id": req.user_id, "limit": req.top_k, "run_id": run_id}
+        kwargs_short = {"user_id": req.user_id, "limit": st_top_k * 2, "run_id": run_id}
         if req.agent_id:
             kwargs_short["agent_id"] = req.agent_id
         try:
-            short_results = memory.search(req.query, **kwargs_short)
-            for r in _extract_results(short_results):
+            raw_short = _extract_results(memory.search(req.query, **kwargs_short))
+            for r in raw_short:
                 if r.get("id") not in seen_ids:
                     r["memory_type"] = "short_term"
                     r["run_id"] = run_id
-                    all_results.append(r)
+                    short_term_results.append(r)
                     seen_ids.add(r.get("id"))
         except Exception:
             pass  # No memories for this day is normal
 
+    # Apply time decay only to short-term, then cap at st_top_k
+    if req.time_decay:
+        short_term_results = _apply_time_decay(short_term_results)
+    else:
+        short_term_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    if req.min_score > 0.0:
+        short_term_results = [r for r in short_term_results if r.get("score", 0.0) >= req.min_score]
+    short_term_results = short_term_results[:st_top_k]
+
     # 3. Include shared memories if user_id is not already "shared"
+    shared_results = []
     if req.user_id != "shared":
         try:
-            shared = _search_shared(req.query, req.agent_id, req.top_k)
-            for r in shared:
+            raw_shared = _search_shared(req.query, req.agent_id, lt_top_k)
+            for r in raw_shared:
                 if r.get("id") not in seen_ids:
                     r["memory_type"] = "shared"
-                    all_results.append(r)
+                    r["original_score"] = round(r.get("score", 0), 4)
+                    shared_results.append(r)
                     seen_ids.add(r.get("id"))
+            shared_results.sort(key=lambda x: x.get("score", 0), reverse=True)
         except Exception as e:
             logger.warning(f"Error searching shared memories: {e}")
 
-    # 4. Sort by score, apply time decay, apply min_score filter, then cap at top_k
-    if req.time_decay:
-        all_results = _apply_time_decay(all_results)
-    else:
-        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
-    if req.min_score > 0.0:
-        all_results = [r for r in all_results if r.get("score", 0.0) >= req.min_score]
+    # 4. Merge all layers and return (no cross-layer re-ranking, preserve per-layer scores)
+    all_results = long_term_results + short_term_results + shared_results
 
-    return {"status": "ok", "results": all_results[:req.top_k]}
+    return {"status": "ok", "results": all_results}
 
 
 @app.get("/memory/list")
