@@ -58,6 +58,9 @@ LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2000"))
 DIGEST_LLM_MODEL = os.getenv("DIGEST_LLM_MODEL", "minimax.minimax-m2.5")
 DIGEST_LLM_REGION = os.getenv("DIGEST_LLM_REGION", AWS_REGION)
 
+# Audit
+AUDIT_LOG_RETRIEVAL_DETAIL = os.getenv("AUDIT_LOG_RETRIEVAL_DETAIL", "false").lower() == "true"
+
 # Service
 SERVICE_HOST = os.getenv("SERVICE_HOST", "0.0.0.0")
 SERVICE_PORT = int(os.getenv("SERVICE_PORT", "8230"))

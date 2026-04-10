@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 os.environ.setdefault("AWS_REGION", "us-east-1")
 
 from mem0 import Memory
-from config import get_mem0_config, replace_llm_with_tracked, SERVICE_HOST, SERVICE_PORT
+from config import get_mem0_config, replace_llm_with_tracked, SERVICE_HOST, SERVICE_PORT, AUDIT_LOG_RETRIEVAL_DETAIL
 from tracked_llm import reset_token_counter, get_token_stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -63,6 +63,29 @@ def cleanup_old_audit_logs():
                 logger.info(f"Deleted old audit log: {f.name}")
         except Exception:
             pass
+
+
+def _write_retrieval_detail_log(
+    path: str, agent_id: Optional[str], user_id: str, query: str, results: list
+):
+    """Write retrieval detail (query + results) to audit log when AUDIT_LOG_RETRIEVAL_DETAIL=true."""
+    detail_entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "event": "retrieval_detail",
+        "path": path,
+        "agent_id": agent_id or "-",
+        "user_id": user_id,
+        "query": query,
+        "results": [
+            {"id": r.get("id"), "memory": r.get("memory"), "score": r.get("score")}
+            for r in results
+        ],
+    }
+    try:
+        with get_audit_log_path().open("a", encoding="utf-8") as f:
+            f.write(json.dumps(detail_entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to write retrieval detail audit log: {e}")
 
 
 # ─── Global mem0 instance ───
@@ -362,6 +385,8 @@ async def search_memory(req: SearchMemoryRequest):
             raw = [r for r in raw if r.get("score", 0.0) >= req.min_score]
         if req.time_decay:
             raw = _apply_time_decay(raw)
+        if AUDIT_LOG_RETRIEVAL_DETAIL:
+            _write_retrieval_detail_log("/memory/search", req.agent_id, req.user_id, req.query, raw)
         return {"status": "ok", "results": {"results": raw}}
     except Exception as e:
         logger.error(f"Error searching memory: {e}", exc_info=True)
@@ -462,6 +487,8 @@ async def search_combined(req: CombinedSearchRequest):
     # 4. Merge all layers and return (no cross-layer re-ranking, preserve per-layer scores)
     all_results = long_term_results + short_term_results + shared_results
 
+    if AUDIT_LOG_RETRIEVAL_DETAIL:
+        _write_retrieval_detail_log("/memory/search_combined", req.agent_id, req.user_id, req.query, all_results)
     return {"status": "ok", "results": all_results}
 
 
