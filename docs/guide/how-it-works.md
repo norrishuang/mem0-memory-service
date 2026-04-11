@@ -12,6 +12,7 @@ This page explains the end-to-end memory flow — from a conversation happening 
 | **Semantic retrieval, not keyword search** | Find memories by meaning, not exact phrasing | Vector similarity + time-decay blended ranking (`0.7 × score + 0.3 × recency`) |
 | **Cross-agent knowledge sharing** | Lessons learned by one agent instantly benefit all agents | `category=experience` / `procedural` auto-writes to shared pool; every search includes shared pool |
 | **Write generously, dedup automatically** | Agents don't need to worry about redundancy — mem0 handles it | `infer=True` triggers internal fact extraction; same-day dedup is bounded by `run_id` |
+| **Targeted extraction per category** | Different memory types need different extraction angles | `custom_extraction_prompt` per `/memory/add` call; `auto_digest` auto-runs task-extraction pass on every session block |
 | **Three paths to long-term memory** | Different sources land in long-term at different speeds | Explicit CLI write (immediate) → `memory_sync` (same day) → `auto_dream` (7-day cadence) |
 | **Multi-session, multi-agent continuity** | What happens in a group chat is visible to the direct chat session | `session_snapshot` covers all `agent:{id}:*` sessions; ~20 min propagation lag |
 
@@ -143,7 +144,7 @@ For deployment details, see [Docker Setup](../deploy/docker) or [systemd Setup](
 | Time (UTC) | Script | What it does |
 |-----------|--------|--------------|
 | Every 5 min | `pipelines/session_snapshot.py` | Capture session conversations → diary file |
-| Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=True, fact extraction) |
+| Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=True, fact extraction) + task-extraction pass (custom_extraction_prompt → category=task) |
 | 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Step 1: yesterday diary → mem0 long-term (infer=True); Step 2: 7-day-old short-term → re-add to long-term (infer=True) then delete |
 
@@ -176,6 +177,20 @@ The cross-`run_id` merge happens only during `auto_dream` (UTC 02:00). When 7-da
 Every 15 min  → short-term  (run_id=today,   dedup within same day only)
 UTC 02:00     → long-term   (no run_id,       global dedup across all history)
 ```
+
+### Targeted Extraction Pass (category=task)
+
+After each session block is written to short-term memory, `auto_digest` runs a second pass with a **task-focused `custom_extraction_prompt`**:
+
+```
+Session block
+  ├─ Pass ①  infer=True (default prompt) → category=short_term   (general facts)
+  └─ Pass ②  infer=True + custom_extraction_prompt → category=task  (completed work tasks)
+```
+
+Pass ② extracts only finalized work outcomes in `[type] description` format (e.g. `[开发] 实现了 X 功能，PR #129 已开`). This makes task recall precise: querying `"最近完成的任务"` returns clean task entries instead of scattered facts.
+
+**Extending to other categories:** The same pattern applies to any category. Agents can pass a `custom_extraction_prompt` on any `/memory/add` call to extract decisions, config changes, or custom dimensions — without affecting the global mem0 prompt.
 
 > **Note**: The previous default full mode (UTC 01:30, LLM-extract yesterday's diary → mem0 short-term) has been superseded by `auto_dream.py` Step 1, which writes directly to long-term memory (no run_id) with higher quality.
 

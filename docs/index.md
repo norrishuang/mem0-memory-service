@@ -41,6 +41,9 @@ features:
   - icon: 📊
     title: Token Tracking & Cost Visibility
     details: Every LLM call is tracked — input/output tokens logged per request, per agent, per user. Identify expensive operations, estimate Bedrock costs, and optimize pipeline frequency with real data.
+  - icon: 🎯
+    title: Targeted Memory Extraction
+    details: "Pass a custom extraction prompt per /memory/add call to guide mem0 toward a specific dimension — tasks, decisions, config, or any custom category. auto_digest automatically runs a dedicated task-extraction pass on every session block, building a clean `category=task` index for precise work recall."
   - icon: 🔍
     title: Built-in Audit Logging
     details: All API calls written to daily JSONL files in audit_logs/. Plug in Fluent Bit, Vector, CloudWatch, or any file-tailing shipper — no code changes needed. Audit logs rotate daily and auto-expire after 30 days.

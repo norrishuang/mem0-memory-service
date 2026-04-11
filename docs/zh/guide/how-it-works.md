@@ -8,6 +8,7 @@
 |---|---|---|
 | **Session 重置零盲区** | 无论 session 何时结束，对话内容不丢失 | 今日日记 + 昨日日记 + mem0 三路覆盖，消除所有时间窗口空白 |
 | **短期→长期两级记忆** | 近期内容独立隔离，只有经过验证的事实才升级为长期记忆 | `auto_digest` 以 `run_id=today` 写入（有界去重）；`auto_dream` 在 UTC 02:00 执行全局去重并晋升 |
+| **按 category 定向抽取** | 不同记忆类型需要不同的抽取视角 | 每次 `/memory/add` 可传 `custom_extraction_prompt`；`auto_digest` 对每个 session block 自动执行任务专项 pass |
 | **双路日记写入** | Agent 主动写入质量高；自动化是兜底保障 | Agent 实时写日记；`session_snapshot` 每 5 分钟兜底抓取 |
 | **语义检索，非关键词匹配** | 按语义含义查找记忆，无需精确措辞 | 向量相似度 + 时间衰减混合排序（`0.7 × 相似度 + 0.3 × 新鲜度`） |
 | **跨 Agent 知识共享** | 一个 Agent 的经验教训，所有 Agent 即时受益 | `category=experience` / `procedural` 自动写入共享池；每次搜索自动包含共享池结果 |
@@ -142,7 +143,7 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 | 时间（UTC） | 脚本 | 做什么 |
 |------------|------|--------|
 | 每 5 分钟 | `pipelines/session_snapshot.py` | 捕获会话对话 → 日记文件 |
-| 每 15 分钟 | `pipelines/auto_digest.py --today` | 增量模式：读取日记新增内容 → mem0 短期记忆（infer=True，fact extraction） |
+| 每 15 分钟 | `pipelines/auto_digest.py --today` | 增量模式：读取日记新增内容 → mem0 短期记忆（infer=True，fact extraction）+ 任务专项 pass（custom_extraction_prompt → category=task） |
 | 01:00 | `pipelines/memory_sync.py` | 同步 `MEMORY.md` → mem0 长期记忆（hash 去重） |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**：Step1: 昨日日记 → mem0 长期记忆（infer=True）；Step2: 7天前短期记忆 → re-add 到长期（infer=True）后删除 |
 
@@ -157,9 +158,24 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 
 ```
 每 15 分钟 (--today)：  日记新增内容 → POST 给 mem0（infer=True，fact extraction）
+                       + 任务专项 pass（custom_extraction_prompt → category=task）
 ```
 
 > **注**：之前的默认全量模式（UTC 01:30，LLM 提取昨日日记 → mem0 短期记忆）已被 `auto_dream.py` Step 1 取代——后者直接写入长期记忆（无 run_id），质量更高。
+
+### 定向抽取 Pass（category=task）
+
+每个 session block 写入短期记忆后，`auto_digest` 立即执行第二轮专项抽取，使用**任务维度的 `custom_extraction_prompt`**：
+
+```
+Session block
+  ├─ 第①轮  infer=True（默认 prompt）→ category=short_term   （通用事实）
+  └─ 第②轮  infer=True + custom_extraction_prompt → category=task  （已完成工作任务）
+```
+
+第②轮只抽取最终完成的工作成果，格式为 `[类型] 描述`（例如 `[开发] 实现了 X 功能，PR #129 已开`）。这让"最近做了哪些工作"类查询精准命中任务条目，而不是散碎的事实片段。
+
+**扩展到其他分类：** 同样的模式适用于任意 category。在任何 `/memory/add` 调用中传入 `custom_extraction_prompt`，即可按需提炼决策、配置变更或自定义维度的记忆——不影响全局 mem0 配置。
 
 ## session_snapshot 的两个角色
 

@@ -41,6 +41,9 @@ features:
   - icon: 📊
     title: Token 追踪与成本可视化
     details: 每次 LLM 调用都被追踪——按请求、按 Agent、按用户记录输入/输出 token 数。识别高成本操作，估算 Bedrock 费用，用真实数据优化 pipeline 频率。
+  - icon: 🎯
+    title: 定向记忆抽取
+    details: "每次 /memory/add 调用可传入自定义 extraction prompt，引导 mem0 按特定维度提炼记忆——任务、决策、配置，或任意自定义分类。auto_digest 对每个 session block 自动执行专项任务抽取 pass，构建干净的 `category=task` 索引，让"最近做了哪些工作"的查询精准命中。"
   - icon: 🔍
     title: 内置审计日志
     details: 所有 API 调用写入 audit_logs/ 目录下的每日 JSONL 文件。接入 Fluent Bit、Vector、CloudWatch 或任何支持文件 tail 的采集工具，无需修改代码。日志按天滚动，30 天后自动过期。
