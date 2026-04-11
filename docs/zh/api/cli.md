@@ -31,8 +31,20 @@ python3 cli.py add --user me --agent dev --run 2026-03-23 \
 | `--text` | ✅* | 要记忆的原始文本 |
 | `--messages` | ✅* | `{role, content}` 消息的 JSON 数组 |
 | `--metadata` | | 元数据标签的 JSON 对象 |
+| `--custom-prompt` | | 自定义提炼提示词（`infer=true` 时覆盖默认 prompt） |
 
 \* `--text` 或 `--messages` 二选一，必须提供其一。
+
+**定向抽取示例：**
+
+```bash
+# 从 session block 抽取已完成工作任务
+python3 cli.py add --user boss --agent dev \
+  --run 2026-04-11 \
+  --text "<session block 内容>" \
+  --metadata '{"category":"task"}' \
+  --custom-prompt "从以下对话中列出agent实际完成的工作任务（最终成果），每行一条，格式：[类型] 描述。只写最终成果，不超过5条。"
+```
 
 ### `search` — 语义搜索
 

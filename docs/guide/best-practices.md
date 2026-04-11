@@ -233,5 +233,39 @@ Only inject results with score >= 0.3. Skip the search entirely if the user's re
 | Config/env info discovered | `environment` | `--metadata '{"category":"environment"}'` |
 | Today's discussion notes | `short_term` | `--run YYYY-MM-DD --metadata '{"category":"short_term"}'` |
 | User preference observed | `preference` | `--metadata '{"category":"preference"}'` |
+| Completed work tasks (auto_digest) | `task` | `--metadata '{"category":"task"}' --custom-prompt "..."` |
 
 > **`experience` vs `procedural`**: `experience` = "what happened + how it was resolved" (incident-driven). `procedural` = "how to do X correctly" (reusable step-by-step guidance). When in doubt: if it reads like a post-mortem → `experience`; if it reads like a how-to guide → `procedural`.
+
+## Targeted Memory Extraction with `custom_extraction_prompt`
+
+By default, `auto_digest` and direct `add` calls use mem0's generic fact-extraction prompt, which may produce mixed results (preferences, configs, code snippets). Use `custom_extraction_prompt` to extract along a specific dimension.
+
+### When to use
+
+| Goal | Prompt hint |
+|------|------------|
+| Work task summary | `"列出agent实际完成的工作任务（最终成果），格式：[类型] 描述..."` |
+| Technical decisions | `"提取重要技术决策及原因，格式：[决策] 原因..."` |
+| Config/env discovery | `"提取新增的服务配置、端口、路径等环境信息..."` |
+| Default | Omit — mem0 uses generic extraction |
+
+### How it works
+
+```
+POST /memory/add
+  text: <session block>
+  infer: true
+  metadata: {category: "task"}
+  custom_extraction_prompt: "..."   ← overrides default prompt for this call only
+```
+
+The `custom_extraction_prompt` is passed directly to mem0's `Memory.add(prompt=...)` — it is scoped to the single call and does not change global config.
+
+### auto_digest integration
+
+`auto_digest.py` automatically runs targeted task extraction on every session block:
+1. **Pass ①** — generic `infer=True` → `category=short_term`
+2. **Pass ②** — `custom_extraction_prompt` (task-focused) → `category=task`
+
+This makes work task recall much more precise: query `"最近完成的任务"` returns clean `[类型] 描述` entries instead of scattered facts.

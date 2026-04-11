@@ -31,8 +31,20 @@ python3 cli.py add --user me --agent dev --run 2026-03-23 \
 | `--text` | ✅* | Raw text to memorize |
 | `--messages` | ✅* | JSON array of `{role, content}` messages |
 | `--metadata` | | JSON object of metadata tags |
+| `--custom-prompt` | | Custom extraction prompt (overrides default when `infer=true`) |
 
 \* Either `--text` or `--messages` is required.
+
+**Targeted extraction example:**
+
+```bash
+# Extract completed tasks from a session block
+python3 cli.py add --user boss --agent dev \
+  --run 2026-04-11 \
+  --text "<session block content>" \
+  --metadata '{"category":"task"}' \
+  --custom-prompt "从以下对话中列出agent实际完成的工作任务（最终成果），每行一条，格式：[类型] 描述。只写最终成果，不超过5条。"
+```
 
 ### `search` — Semantic Search
 
