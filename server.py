@@ -154,6 +154,7 @@ class AddMemoryRequest(BaseModel):
     run_id: Optional[str] = Field(None, description="Run/session identifier (e.g. YYYY-MM-DD for short-term memories)")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Extra metadata tags")
     infer: bool = Field(True, description="Whether mem0 should infer/extract facts (True) or store raw text (False)")
+    custom_extraction_prompt: Optional[str] = Field(None, description="Custom prompt to guide mem0 fact extraction (overrides default). Only effective when infer=True.")
 
 
 class SearchMemoryRequest(BaseModel):
@@ -230,10 +231,13 @@ async def add_memory(req: AddMemoryRequest):
 
             def _add_with_tracking():
                 reset_token_counter()
+                add_extra = {}
+                if req.custom_extraction_prompt:
+                    add_extra["prompt"] = req.custom_extraction_prompt
                 if req.messages:
-                    result = memory.add(req.messages, infer=infer, **kwargs)
+                    result = memory.add(req.messages, infer=infer, **kwargs, **add_extra)
                 else:
-                    result = memory.add(req.text, infer=infer, **kwargs)
+                    result = memory.add(req.text, infer=infer, **kwargs, **add_extra)
                 return result, get_token_stats()
 
             result, token_stats = await loop.run_in_executor(_mem0_executor, _add_with_tracking)

@@ -39,6 +39,9 @@ def add_memory(args):
         print("Error: --text or --messages required", file=sys.stderr)
         sys.exit(1)
 
+    if getattr(args, "custom_prompt", None):
+        payload["custom_extraction_prompt"] = args.custom_prompt
+
     resp = requests.post(f"{BASE_URL}/memory/add", json=payload, timeout=60)
     resp.raise_for_status()
     result = resp.json()
@@ -174,6 +177,7 @@ def main():
     p_add.add_argument("--text", default=None)
     p_add.add_argument("--messages", default=None, help="JSON array of {role, content}")
     p_add.add_argument("--metadata", default=None, help="JSON object of metadata")
+    p_add.add_argument("--custom-prompt", default=None, dest="custom_prompt", help="Custom extraction prompt to guide mem0 fact extraction (overrides default, only when infer=True)")
     p_add.set_defaults(func=add_memory)
 
     # search
