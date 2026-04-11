@@ -81,7 +81,7 @@ Each agent's `HEARTBEAT.md` should include explicit rules for when to write `cat
 
 **Paste this prompt to your agent:**
 
-```
+````
 Please check all HEARTBEAT.md files across my OpenClaw workspaces (usually at ~/.openclaw/workspace-*/HEARTBEAT.md).
 
 For any HEARTBEAT.md that does NOT already have an "experience memory writing" section, add the following section:
@@ -101,13 +101,13 @@ Not needed for: routine task completions, one-off operations, info already in ME
 ```bash
 python3 /path/to/mem0-memory-service/cli.py add \
   --user boss --agent &lt;your-agent-id&gt; \
-  --text "<context>: <conclusion/solution>" \
+  --text "&lt;context&gt;: &lt;conclusion/solution&gt;" \
   --metadata '{"category":"experience"}'
 ```
 ---
 
 Report which files were updated and which already had this section.
-```
+````
 
 ---
 
