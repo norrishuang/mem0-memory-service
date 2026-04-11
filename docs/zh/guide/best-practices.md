@@ -231,5 +231,37 @@ python3 /path/to/mem0-memory-service/cli.py search \
 | 发现配置/环境信息 | `environment` | `--metadata '{"category":"environment"}'` |
 | 今天的讨论记录 | `short_term` | `--run YYYY-MM-DD --metadata '{"category":"short_term"}'` |
 | 观察到用户偏好 | `preference` | `--metadata '{"category":"preference"}'` |
+| 已完成工作任务（auto_digest 自动） | `task` | `--metadata '{"category":"task"}' --custom-prompt "..."` |
 
 > **`experience` vs `procedural` 的区别**：`experience` = "发生了什么 + 怎么解决的"（事后复盘型）。`procedural` = "如何正确做某件事"（可复用的操作指南）。判断方法：读起来像事故复盘 → `experience`；读起来像操作手册 → `procedural`。
+
+## 定向记忆抽取（`custom_extraction_prompt`）
+
+默认情况下，`auto_digest` 和直接 `add` 调用使用 mem0 的通用提炼 prompt，结果可能混杂偏好、配置、代码片段等。通过 `custom_extraction_prompt` 可针对特定维度进行精准抽取。
+
+### 使用场景
+
+| 目标 | Prompt 方向 |
+|------|------------|
+| 工作任务汇总 | `"列出agent实际完成的工作任务（最终成果），格式：[类型] 描述..."` |
+| 技术决策记录 | `"提取重要技术决策及原因，格式：[决策] 原因..."` |
+| 配置/环境发现 | `"提取新增的服务配置、端口、路径等环境信息..."` |
+| 默认（不传） | mem0 使用通用提炼，适合混合内容 |
+
+### 工作原理
+
+```
+POST /memory/add
+  text: <session block>
+  infer: true
+  metadata: {category: "task"}
+  custom_extraction_prompt: "..."   ← 仅对此次调用生效，不影响全局配置
+```
+
+### auto_digest 集成
+
+`auto_digest.py` 对每个 session block 自动执行两轮抽取：
+1. **第①轮** — 通用 `infer=True` → `category=short_term`（通用事实）
+2. **第②轮** — `custom_extraction_prompt`（任务维度）→ `category=task`（已完成任务）
+
+这样后续执行"最近做了哪些工作"类查询时，可以精准召回 `[类型] 描述` 格式的任务条目，而不是散碎的事实片段。

@@ -37,6 +37,9 @@ MAX_BLOCK_BYTES = 100 * 1024  # Max bytes per session block before sub-splitting
 BATCH_SIZE_BYTES = MAX_BLOCK_BYTES  # Legacy alias — only used as fallback for oversized blocks
 BATCH_SLEEP_SECS = 5      # 批次间 sleep，避免打爆 mem0
 
+# ─── Task Extraction ───
+TASK_EXTRACTION_ENABLED = os.environ.get("DIGEST_TASK_EXTRACTION", "true").lower() == "true"
+
 # ─── Setup Logging ───
 
 logging.basicConfig(
@@ -181,6 +184,48 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
 
 
 
+TASK_EXTRACTION_PROMPT = (
+    "从以下对话日记中列出agent实际完成的工作任务（最终成果），每行一条，"
+    "格式：[类型] 描述。类型：开发/修复/文档/配置/分析/部署/其他。"
+    "要求：只写最终成果不写步骤，不超过5条，每条不超过60字，没有任务只写'无'，直接输出列表不要分析。"
+)
+
+
+def extract_and_write_task_memories(block: str, run_id: str, agent_id: str) -> int:
+    """通过 /memory/add + custom_extraction_prompt 提炼并写入任务记忆（category=task）。
+    返回成功写入数量（0 表示无任务或失败）。
+    """
+    if not TASK_EXTRACTION_ENABLED:
+        return 0
+    try:
+        metadata = {
+            "category": "task",
+            "source": "auto_digest_task",
+            "digest_date": run_id,
+            "workspace_agent": agent_id,
+        }
+        resp = requests.post(MEM0_API_URL, json={
+            "user_id": "boss",
+            "agent_id": agent_id,
+            "run_id": run_id,
+            "text": block[:3000],
+            "infer": True,
+            "metadata": metadata,
+            "custom_extraction_prompt": TASK_EXTRACTION_PROMPT,
+        }, timeout=120)
+        resp.raise_for_status()
+        result = resp.json().get("result", {})
+        written = len([r for r in result.get("results", []) if r.get("event") in ("ADD", "UPDATE")])
+        if written:
+            logger.info(f"[{agent_id}] ✓ Task extraction: {written} task memories written")
+        else:
+            logger.debug(f"[{agent_id}] Task extraction: no new tasks from this block")
+        return written
+    except Exception as e:
+        logger.warning(f"[{agent_id}] Task extraction failed: {e}")
+        return 0
+
+
 def split_into_session_blocks(content: str) -> list[str]:
     """Split diary content by '### [HH:MM]' session time markers.
 
@@ -284,6 +329,8 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
                     cumulative_bytes += block_bytes
                     agent_offsets[date] = prev_offset + cumulative_bytes
                     save_offsets(offsets)
+                    # 任务专项抽取（通过 custom_extraction_prompt，失败不阻塞主流程）
+                    extract_and_write_task_memories(block, date, agent_id)
                 else:
                     batches_failed += 1
                     logger.warning(f"[{agent_id}] Block {i+1} failed, stopping to retry next run")
@@ -317,6 +364,8 @@ def process_agent(agent_id: str, workspace: Path, date: str, incremental: bool =
             if block.strip():
                 if write_to_mem0(block, date, agent_id, incremental=False):
                     batches_sent += 1
+                    # 任务专项抽取（通过 custom_extraction_prompt）
+                    extract_and_write_task_memories(block, date, agent_id)
                 else:
                     batches_failed += 1
             if i < len(blocks) - 1:

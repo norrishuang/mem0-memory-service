@@ -55,8 +55,41 @@ curl -X POST http://127.0.0.1:8230/memory/add \
 | `text` | string | ✅* | 要记忆的原始文本 |
 | `messages` | array | ✅* | 对话消息 `[{role, content}]` |
 | `metadata` | object | | 额外元数据标签 |
+| `infer` | boolean | | 是否让 mem0 提炼事实（默认 `true`）。设为 `false` 则原文存储。 |
+| `custom_extraction_prompt` | string | | 自定义提炼提示词，覆盖默认 prompt（仅在 `infer=true` 时生效）。详见[定向记忆抽取](#定向记忆抽取)。 |
 
 \* `text` 或 `messages` 二选一，必须提供其一。
+
+
+## 定向记忆抽取
+
+默认情况下，mem0 使用通用的事实提炼 prompt。通过 `custom_extraction_prompt` 可以指定特定维度进行抽取，无需修改全局配置。
+
+```bash
+# 从 session block 抽取已完成工作任务
+curl -X POST http://127.0.0.1:8230/memory/add \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": "boss",
+    "agent_id": "dev",
+    "run_id": "2026-04-11",
+    "text": "<session block 内容>",
+    "infer": true,
+    "metadata": {"category": "task"},
+    "custom_extraction_prompt": "从以下对话中列出agent实际完成的工作任务（最终成果），每行一条，格式：[类型] 描述。类型：开发/修复/文档/配置/分析/部署/其他。只写最终成果，不超过5条。"
+  }'
+```
+
+**使用场景：**
+
+| 场景 | 推荐 `custom_extraction_prompt` |
+|------|--------------------------------|
+| 工作任务汇总 | `"列出agent实际完成的工作任务（最终成果），格式：[类型] 描述..."` |
+| 技术决策记录 | `"提取重要技术决策及原因，格式：[决策] 原因..."` |
+| 配置/环境发现 | `"提取新增的服务配置、端口、路径等环境信息..."` |
+| 默认（不传） | mem0 使用通用提炼，适合混合内容 |
+
+> **注意：** `custom_extraction_prompt` 仅对当次调用生效，不影响全局 mem0 配置。
 
 ## 搜索
 

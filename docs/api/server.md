@@ -55,6 +55,8 @@ curl -X POST http://127.0.0.1:8230/memory/add \
 | `text` | string | ✅* | Raw text to memorize |
 | `messages` | array | ✅* | Conversation messages `[{role, content}]` |
 | `metadata` | object | | Extra metadata tags |
+| `infer` | boolean | | Whether mem0 should extract facts (default: `true`). Set `false` to store raw text as-is. |
+| `custom_extraction_prompt` | string | | Custom prompt to guide fact extraction. Overrides default prompt when `infer=true`. See [Targeted Extraction](#targeted-extraction). |
 
 \* Either `text` or `messages` is required.
 
@@ -75,6 +77,47 @@ curl -X POST http://127.0.0.1:8230/memory/add \
 ::: tip
 Token usage is also written to the audit log (`audit_logs/audit-YYYY-MM-DD.jsonl`) as `type=token_usage` entries, enabling daily cost analysis.
 :::
+
+
+## Targeted Extraction
+
+By default mem0 uses a generic fact-extraction prompt. Pass `custom_extraction_prompt` to guide extraction toward a specific dimension without changing global config.
+
+```bash
+# Extract completed work tasks from a session block
+curl -X POST http://127.0.0.1:8230/memory/add \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": "boss",
+    "agent_id": "dev",
+    "run_id": "2026-04-11",
+    "text": "<session block content>",
+    "infer": true,
+    "metadata": {"category": "task"},
+    "custom_extraction_prompt": "从以下对话中列出agent实际完成的工作任务（最终成果），每行一条，格式：[类型] 描述。类型：开发/修复/文档/配置/分析/部署/其他。只写最终成果，不超过5条。"
+  }'
+
+# Extract technical decisions
+curl -X POST http://127.0.0.1:8230/memory/add \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": "boss",
+    "agent_id": "dev",
+    "text": "<session block>",
+    "metadata": {"category": "decision"},
+    "custom_extraction_prompt": "从以下对话中提取重要技术决策及原因，每条一行，格式：[决策] 原因。"
+  }'
+```
+
+**When to use:**
+| Situation | Recommended `custom_extraction_prompt` |
+|-----------|----------------------------------------|
+| Work task summary | `"列出agent实际完成的工作任务（最终成果），格式：[类型] 描述..."` |
+| Technical decisions | `"提取重要技术决策及原因，格式：[决策] 原因..."` |
+| Config/env discovery | `"提取新增的服务配置、端口、路径等环境信息..."` |
+| Default (omit) | mem0 uses generic extraction — good for mixed content |
+
+> **Note:** `custom_extraction_prompt` only affects this single call. It does not change the global mem0 configuration.
 
 ## Search
 
