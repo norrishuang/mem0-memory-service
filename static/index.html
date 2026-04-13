@@ -135,7 +135,7 @@ createApp({
       loading.value=true
       try{
         if(isSearchMode.value&&searchQuery.value){
-          const body={query:searchQuery.value,user_id:USER_ID,top_k:100}
+          const body={query:searchQuery.value,user_id:USER_ID,top_k:10,min_score:0.5}
           if(agentFilter.value)body.agent_id=agentFilter.value
           const r=await fetch(`${API}/memory/search`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
           const d=await r.json()
