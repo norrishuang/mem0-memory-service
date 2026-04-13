@@ -68,19 +68,38 @@ jobs:
           AUDIT_LOG_RETRIEVAL_DETAIL=${AUDIT_LOG_RETRIEVAL_DETAIL}
           EOF
 
-      - name: Start mem0-api service
-        run: docker compose up -d mem0-api mem0-postgres
+      - name: Start postgres (pgvector profile)
+        run: docker compose --profile pgvector up -d mem0-postgres
 
-      - name: Wait for service health
+      - name: Wait for postgres to be healthy
+        run: |
+          echo "Waiting for mem0-postgres to be healthy..."
+          for i in $(seq 1 30); do
+            if docker compose --profile pgvector ps mem0-postgres | grep -q "healthy"; then
+              echo "Postgres is healthy after ${i}s"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Postgres failed to become healthy after 30s"
+              docker compose --profile pgvector logs mem0-postgres
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Start mem0-api service
+        run: docker compose up -d mem0-api
+
+      - name: Wait for mem0-api to be healthy
         run: |
           echo "Waiting for mem0-api to be healthy..."
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -sf http://localhost:8230/health > /dev/null 2>&1; then
               echo "Service is healthy after ${i}s"
               break
             fi
-            if [ "$i" -eq 30 ]; then
-              echo "Service failed to become healthy after 30s"
+            if [ "$i" -eq 60 ]; then
+              echo "Service failed to become healthy after 60s"
               docker compose logs mem0-api
               exit 1
             fi
@@ -101,4 +120,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker compose down -v
+        run: docker compose --profile pgvector down -v
