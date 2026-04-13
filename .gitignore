@@ -29,3 +29,4 @@ memory_sync.log
 
 # Docker runtime data
 data/
+auto_dream_consolidation_offset.json
