@@ -32,7 +32,7 @@ mem0 and workspace filesystem memory (MEMORY.md + memory/*.md) each have their s
 | | MEMORY.md + memory/*.md | mem0 |
 |---|---|---|
 | **What to store** | Structured project cards (name+URL+status+path) | Lessons learned, technical details, decision rationale, user preferences |
-| **Retrieval method** | memory_search triggered automatically by the system | Requires actively calling CLI search |
+| **Retrieval method** | memory_search (local file index, no audit trail) | CLI search via mem0.sh — **always use this for semantic queries** |
 | **Strengths** | Preserves structure and context, no information loss | Semantic retrieval, on-demand fetching, no loading token cost |
 | **Weaknesses** | Larger files mean higher token costs | Auto-dedup may fragment structured information |
 
@@ -43,47 +43,89 @@ mem0 and workspace filesystem memory (MEMORY.md + memory/*.md) each have their s
 
 ## 🔴 Core Rules: Proactive Retrieval + Proactive Writing
 
-### Retrieval (Before Every Response)
+### Retrieval — Decision Framework
 
-**Don't wait for the user to ask "do you remember?" — proactively search before answering every question.**
+**Stop treating retrieval as a ritual. Ask yourself three questions before every response:**
 
-#### 🚨 Mandatory Retrieval Scenarios (no exceptions)
+#### Step 1: Do I need past facts to answer this?
 
-These scenarios **must** trigger mem0 search before responding. Do not skip:
+| Question type | Need retrieval? |
+|---------------|----------------|
+| Recalls past work, decisions, project status, config, people | ✅ Yes |
+| Troubleshooting a recurring error | ✅ Yes |
+| Current task execution (git, code, file ops, shell commands) | ❌ No |
+| General knowledge / concepts / explanations | ❌ No |
+| Clearly stated in this conversation already | ❌ No |
 
-| Scenario | Example phrases | Search strategy |
-|----------|----------------|----------------|
-| **Work review / summary** | "what did we work on recently", "last 5 days", "this week's progress", "summarize recent work" | Search with multiple queries (project names, tech keywords); also check memory/YYYY-MM-DD.md diary files AND git log for a complete picture |
-| **Project status** | "what's the status of PR XXX", "is this deployed", "how is project YYY going" | Search project name + relevant keywords |
-| **Prior decisions** | "why did we choose X", "how did we do this before", "what did we decide" | Search decision + topic keywords |
-| **Person / team** | "who works on YYY", "what is XXX responsible for" | Search person name + role |
-| **Config / environment** | "what port does it use", "what's the service address", "what's the API key" | Search service name + config type |
-| **Debugging / troubleshooting** | "we've seen this error before", "how did we fix this last time", "have we seen this" | Search error message + component name |
+**If the answer is ❌: skip retrieval entirely. Do not add a search call "just in case."**
+
+> 🚨 **Always use `{baseDir}/scripts/mem0.sh search` for memory retrieval. Never use the `memory_search` tool for semantic queries — it only searches local markdown files and bypasses the mem0 vector database entirely (no audit trail, no semantic matching).**
+
+#### Step 2: Extract a precise query — not a vague one
+
+Bad: `"PR 进展"` → Low recall, generic noise  
+Good: `"dolphinscheduler PR #18069 EMR Serverless"` → Targeted hit
+
+Extract **2–3 concrete keywords** from the user's question: project name, component, error keyword, person name, date range.
+
+#### Step 3: After retrieval — evaluate before using
+
+- Score ≥ 0.5 and content directly relevant → use it
+- Score < 0.3 or content tangentially related → **ignore**, do not inject into response
+- All results low score → tell the user "I don't have a prior memory on this"
+
+---
+
+#### 🚨 Mandatory Retrieval Scenarios
+
+These always require retrieval. **Do not skip.**
+
+| Scenario | Example phrases | `--recent-days` | Search strategy |
+|----------|----------------|-----------------|----------------|
+| **Session start (first message)** | Any first message in a new session | 7 | Extract 2–3 keywords from user's message; skip only if purely conceptual (greetings, general knowledge) |
+| **Daily / weekly summary** | "今天做了什么", "周报", "最近 5 天", "this week" | 7–14 | Multiple queries: project names + commit keywords; also read diary files + `git log` |
+| **Project / PR status** | "PR 状态", "部署了么", "进展如何" | 3 | Project name + PR number |
+| **Past decisions** | "当时为什么选 X", "我们怎么做的" | 7 | `decision` + tech keyword |
+| **Config / env** | "端口是多少", "API key", "服务地址" | 3 | Service name + config type |
+| **Debugging** | "这个错误见过么", "上次怎么修的" | 7 | Error keyword + component |
+| **Person / team** | "谁负责 YYY", "XXX 在做什么" | 3 | Person name + role |
+
+---
 
 #### 📋 Work Review Checklist
 
-When the user asks about past work (any time range), **always do all three**:
-1. `mem0 search` — semantic memory (structured summaries, lessons learned)
+When summarizing past work (any time range), **always do all three — do not skip any**:
+
+1. `mem0 search --combined --recent-days N` — distilled memories (decisions, lessons, project state)
 2. `cat memory/YYYY-MM-DD.md` — raw diary files for the relevant dates
-3. `git log --oneline -20` — precise commit/PR timeline
+3. `git log --oneline -20` — precise commit/PR artifact timeline
 
-Do not skip any source. mem0 covers distilled knowledge; diaries cover raw context; git log covers code artifacts.
-
-**Prefer combined search (long-term + recent 7-day short-term):**
+Adjust `--recent-days` to the time range the user asked for:
 
 ```bash
-{baseDir}/scripts/mem0.sh search \
-  --user boss --agent main \
-  --query "<keywords extracted from user question>" \
-  --combined --recent-days 7
+# Today only
+{baseDir}/scripts/mem0.sh search --user boss --agent dev \
+  --query "<keywords>" --combined --recent-days 1
+
+# Past 3 days (default, quick context)
+{baseDir}/scripts/mem0.sh search --user boss --agent dev \
+  --query "<keywords>" --combined --recent-days 3
+
+# Past week (weekly report, retrospective)
+{baseDir}/scripts/mem0.sh search --user boss --agent dev \
+  --query "<keywords>" --combined --recent-days 7
+
+# Past 2 weeks or more (cross-project review)
+{baseDir}/scripts/mem0.sh search --user boss --agent dev \
+  --query "<keywords>" --combined --recent-days 14
 ```
 
-**Or search long-term memory only:**
+**Use `--min-score 0.3` to filter noise when the query is specific:**
 
 ```bash
-{baseDir}/scripts/mem0.sh search \
-  --user boss --agent main \
-  --query "<keywords extracted from user question>"
+{baseDir}/scripts/mem0.sh search --user boss --agent dev \
+  --query "dolphinscheduler EMR Serverless PR" \
+  --combined --recent-days 7 --min-score 0.3
 ```
 
 ### Writing (After Every Task Completion)
@@ -136,6 +178,49 @@ Use `category=experience` for:
 
 Use other categories (`decision`, `project`, `environment`) for agent-specific memories that don't apply broadly.
 
+---
+
+## 🔴 Experience 写入规范（强制执行）
+
+以下情况完成后，agent **必须**主动写入 `category=experience`，不需要用户提醒：
+
+| 触发条件 | 写入类型 | 示例 |
+|---------|---------|------|
+| **踩坑 / 修复了 bug** | `experience` | 发现某个 API 行为与预期不符、服务路径配置错误 |
+| **技术决策** | `experience` | 选了方案 A 而非方案 B，记录原因 |
+| **发现了正确的操作方式** | `procedural` | 某个 CLI 工具的正确调用姿势、步骤性操作模板 |
+| **跨 session 的重要结论** | `experience` 或 `procedural` | 讨论很久才达成的共识，下次不用重新推导 |
+
+**不写的情况：**
+- 日常任务完成（如"创建了 issue"、"发送了消息"）
+- 一次性的临时操作记录
+- 已经在 MEMORY.md 稳定骨架里的信息
+
+**写入时机：**
+- **session 结束前**：本次对话触发了上述任一条件就写
+- **heartbeat 时**：回顾最近工作，判断是否有未记录的 experience
+
+**写入格式：**
+```bash
+{baseDir}/scripts/mem0.sh add \
+  --user boss --agent <your-agent-id> \
+  --text "<背景>：<结论/解决方法>" \
+  --metadata '{"category":"experience"}'
+```
+
+示例：
+```bash
+# 踩坑记录
+{baseDir}/scripts/mem0.sh add --user boss --agent dev \
+  --text "kiro-cli 调用：exec background=true + workdir 指定目录，command 只写 kiro-cli chat，不要在 command 里加 & 或 cd &&，否则 PTY 断开 kiro 直接退出" \
+  --metadata '{"category":"experience"}'
+
+# 技术决策
+{baseDir}/scripts/mem0.sh add --user boss --agent dev \
+  --text "auto_digest 选择 infer=True：让 mem0 内部做 fact extraction，质量比直传原始日记更高，且不需要自定义 LLM 提炼层" \
+  --metadata '{"category":"experience"}'
+```
+
 ## Writing
 
 When adding memory with `category=experience`, it is automatically shared to the global shared knowledge base (accessible by all agents and users).
@@ -158,7 +243,22 @@ When adding memory with `category=experience`, it is automatically shared to the
 {baseDir}/scripts/mem0.sh add \
   --user boss --agent main \
   --messages '[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]'
+
+# Custom extraction prompt — guide mem0 to extract along a specific dimension
+# Use when you want targeted extraction (e.g. tasks, decisions) instead of generic facts
+{baseDir}/scripts/mem0.sh add \
+  --user boss --agent dev \
+  --text "<session block content>" \
+  --run 2026-04-11 \
+  --metadata '{"category":"task"}' \
+  --custom-prompt "从以下对话中列出agent实际完成的工作任务（最终成果），每行一条，格式：[类型] 描述。只写最终成果，不超过5条。"
 ```
+
+**When to use `--custom-prompt`:**
+- **Task extraction**: "从以下对话中列出agent实际完成的工作任务（最终成果）..."
+- **Decision extraction**: "从以下对话中提取重要技术决策及原因..."
+- **Config extraction**: "从以下对话中提取新增的服务配置、端口、路径等信息..."
+- Default (no `--custom-prompt`): mem0 uses generic fact extraction — good for mixed content
 
 **Long-term vs Short-term Memory:**
 - **Long-term memory** (without `--run`): Technical decisions, lessons learned, project status, user preferences
@@ -169,7 +269,8 @@ When adding memory with `category=experience`, it is automatically shared to the
 
 | category | Purpose | Example |
 |----------|---------|---------|
-| `experience` | Lessons learned, pitfall records | "Check official docs first for newer features, don't rely on assumptions" |
+| `experience` | Lessons learned, pitfall records (what happened + how it was resolved) | "PR #94 fixed search not including shared pool — root cause was missing _search_shared() call" |
+| `procedural` | Step-by-step how-to guides, reusable workflows, correct tool usage patterns | "kiro-cli: exec(pty=true, background=true, workdir=...) — never add & in command, it breaks PTY" |
 | `project` | Project status, progress | "opensearch-vector-search v1.3.0 has been released" |
 | `decision` | Important decisions and rationale | "Chose cron-based scheduled distillation over pure heartbeat" |
 | `environment` | Environment config, service info | "EC2 us-east-1, Bedrock model configuration" |
@@ -218,24 +319,34 @@ Shared knowledge (category=experience from all agents/users) is automatically in
 > The CLI automatically searches both your personal memory space and the shared knowledge pool (`user_id=shared`) in one call. No separate search needed.
 
 ```bash
-# Combined search (long-term + recent 7-day short-term, recommended)
+# Quick context (default, last 3 days)
 {baseDir}/scripts/mem0.sh search \
   --user boss --agent main \
-  --query "natural language query" --combined --recent-days 7
+  --query "natural language query" --combined
 
-# Search long-term memory only
+# Weekly report / retrospective (last 7 days)
+{baseDir}/scripts/mem0.sh search \
+  --user boss --agent main \
+  --query "keywords" --combined --recent-days 7
+
+# With score filter (recommended for specific queries)
+{baseDir}/scripts/mem0.sh search \
+  --user boss --agent main \
+  --query "specific technical query" --combined --recent-days 3 --min-score 0.3
+
+# Long-term memory only (no short-term)
 {baseDir}/scripts/mem0.sh search \
   --user boss --agent main \
   --query "natural language query" --top-k 5
 
-# Search short-term memory for a specific date
+# Short-term memory for a specific date
 {baseDir}/scripts/mem0.sh search \
   --user boss --agent main \
   --run 2026-03-23 --query "keywords"
 
 # Cross-agent search (omit --agent)
 {baseDir}/scripts/mem0.sh search \
-  --user boss --query "keywords" --combined --recent-days 7
+  --user boss --query "keywords" --combined --recent-days 3
 ```
 
 ## Scheduled Distillation
