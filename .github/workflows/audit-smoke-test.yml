@@ -17,7 +17,7 @@ jobs:
       # Minimal env to boot the service in CI (no real LLM/vector needed for search smoke test)
       AWS_REGION: us-east-1
       VECTOR_STORE: pgvector
-      PGVECTOR_HOST: localhost
+      PGVECTOR_HOST: mem0-postgres
       PGVECTOR_PORT: 5432
       PGVECTOR_DB: mem0
       PGVECTOR_USER: mem0
@@ -49,24 +49,24 @@ jobs:
 
       - name: Write CI .env file
         run: |
-          cat > .env <<EOF
-          AWS_REGION=${AWS_REGION}
-          VECTOR_STORE=${VECTOR_STORE}
-          PGVECTOR_HOST=${PGVECTOR_HOST}
-          PGVECTOR_PORT=${PGVECTOR_PORT}
-          PGVECTOR_DB=${PGVECTOR_DB}
-          PGVECTOR_USER=${PGVECTOR_USER}
-          PGVECTOR_PASSWORD=${PGVECTOR_PASSWORD}
-          PGVECTOR_COLLECTION=${PGVECTOR_COLLECTION}
-          EMBEDDING_MODEL=${EMBEDDING_MODEL}
-          EMBEDDING_DIMS=${EMBEDDING_DIMS}
-          LLM_MODEL=${LLM_MODEL}
-          LLM_TEMPERATURE=${LLM_TEMPERATURE}
-          LLM_MAX_TOKENS=${LLM_MAX_TOKENS}
-          SERVICE_HOST=${SERVICE_HOST}
-          SERVICE_PORT=${SERVICE_PORT}
-          AUDIT_LOG_RETRIEVAL_DETAIL=${AUDIT_LOG_RETRIEVAL_DETAIL}
-          EOF
+          printf '%s\n' \
+            "AWS_REGION=${AWS_REGION}" \
+            "VECTOR_STORE=${VECTOR_STORE}" \
+            "PGVECTOR_HOST=${PGVECTOR_HOST}" \
+            "PGVECTOR_PORT=${PGVECTOR_PORT}" \
+            "PGVECTOR_DB=${PGVECTOR_DB}" \
+            "PGVECTOR_USER=${PGVECTOR_USER}" \
+            "PGVECTOR_PASSWORD=${PGVECTOR_PASSWORD}" \
+            "PGVECTOR_COLLECTION=${PGVECTOR_COLLECTION}" \
+            "EMBEDDING_MODEL=${EMBEDDING_MODEL}" \
+            "EMBEDDING_DIMS=${EMBEDDING_DIMS}" \
+            "LLM_MODEL=${LLM_MODEL}" \
+            "LLM_TEMPERATURE=${LLM_TEMPERATURE}" \
+            "LLM_MAX_TOKENS=${LLM_MAX_TOKENS}" \
+            "SERVICE_HOST=${SERVICE_HOST}" \
+            "SERVICE_PORT=${SERVICE_PORT}" \
+            "AUDIT_LOG_RETRIEVAL_DETAIL=${AUDIT_LOG_RETRIEVAL_DETAIL}" \
+            > .env
 
       - name: Start postgres (pgvector profile)
         run: docker compose --profile pgvector up -d mem0-postgres
