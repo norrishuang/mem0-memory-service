@@ -145,6 +145,7 @@ All standard settings (OpenSearch, S3Vectors, LLM, Embedding) work the same as s
 | `DATA_DIR` | `./data` | State and log files directory. Mapped to `/app/data` inside containers. |
 | `AWS_CONFIG_DIR` | `~/.aws` | AWS credentials directory on the host. Mounted read-only into the pipeline container. |
 | `MEM0_API_URL` | `http://127.0.0.1:8230` | mem0 API URL. The pipeline container overrides this to `http://mem0-api:8230` automatically. |
+| `AUDIT_LOG_RETRIEVAL_DETAIL` | `false` | When `true`, each retrieval request (`/memory/search`, `/memory/search_combined`) writes an extra `retrieval_detail` entry to the audit log, including the query text and retrieved results. Useful for debugging recall quality. |
 
 ### OPENCLAW_BASE
 
