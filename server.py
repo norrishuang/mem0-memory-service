@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 os.environ.setdefault("AWS_REGION", "us-east-1")
 
 from mem0 import Memory
-from config import get_mem0_config, replace_llm_with_tracked, SERVICE_HOST, SERVICE_PORT, AUDIT_LOG_RETRIEVAL_DETAIL
+from config import get_mem0_config, replace_llm_with_tracked, SERVICE_HOST, SERVICE_PORT, AUDIT_LOG_RETRIEVAL_DETAIL, VECTOR_STORE
 from tracked_llm import reset_token_counter, get_token_stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -305,6 +305,27 @@ def _extract_results(raw):
     return raw or []
 
 
+# Vector stores that return cosine *distance* (lower = more similar)
+# These need score = 1 - distance to convert to similarity [0, 1]
+_DISTANCE_STORES = {"pgvector", "s3vectors"}
+
+
+def _normalize_scores(results: list) -> list:
+    """Normalize vector store scores to similarity [0, 1] (higher = more similar).
+
+    - pgvector / s3vectors: return cosine distance → convert via 1 - distance
+    - opensearch: returns similarity score already → no conversion needed
+    """
+    if VECTOR_STORE not in _DISTANCE_STORES:
+        return results
+    for r in results:
+        raw = r.get("score")
+        if raw is not None:
+            # Clamp to [0, 1] to handle floating-point edge cases
+            r["score"] = round(max(0.0, min(1.0, 1.0 - float(raw))), 6)
+    return results
+
+
 def _search_shared(query: str, agent_id: str = None, top_k: int = 10, run_id: str = None):
     """Search memories with user_id='shared'. Returns a list of result dicts."""
     kwargs = {"user_id": "shared", "limit": top_k}
@@ -312,7 +333,7 @@ def _search_shared(query: str, agent_id: str = None, top_k: int = 10, run_id: st
         kwargs["agent_id"] = agent_id
     if run_id:
         kwargs["run_id"] = run_id
-    return _extract_results(memory.search(query, **kwargs))
+    return _normalize_scores(_extract_results(memory.search(query, **kwargs)))
 
 
 def _time_decay_weight(created_at_str: str, half_life_days: int = 30) -> float:
@@ -376,7 +397,7 @@ async def search_memory(req: SearchMemoryRequest):
         results = await loop.run_in_executor(
             _mem0_executor, lambda: memory.search(req.query, **kwargs)
         )
-        raw = _extract_results(results)
+        raw = _normalize_scores(_extract_results(results))
 
         # Include shared memories if user_id is not already "shared"
         if req.user_id != "shared":
@@ -430,7 +451,7 @@ async def search_combined(req: CombinedSearchRequest):
         kwargs_long["agent_id"] = req.agent_id
 
     try:
-        raw_long = _extract_results(memory.search(req.query, **kwargs_long))
+        raw_long = _normalize_scores(_extract_results(memory.search(req.query, **kwargs_long)))
         for r in raw_long:
             if r.get("id") not in seen_ids:
                 r["memory_type"] = "long_term"
@@ -454,7 +475,7 @@ async def search_combined(req: CombinedSearchRequest):
         if req.agent_id:
             kwargs_short["agent_id"] = req.agent_id
         try:
-            raw_short = _extract_results(memory.search(req.query, **kwargs_short))
+            raw_short = _normalize_scores(_extract_results(memory.search(req.query, **kwargs_short)))
             for r in raw_short:
                 if r.get("id") not in seen_ids:
                     r["memory_type"] = "short_term"
