@@ -292,7 +292,21 @@ This means:
 
 ---
 
-## Search Ranking: Time-Decay Weighting
+## Search Ranking
+
+### Score Normalization
+
+Different vector stores return scores with different semantics:
+
+| Vector Store | Raw score meaning | Normalized |
+|---|---|---|
+| **OpenSearch** | Similarity (higher = more similar) | Pass-through |
+| **pgvector** | Cosine distance (lower = more similar) | `1 - distance` |
+| **S3 Vectors** | Cosine distance (lower = more similar) | `1 - distance` |
+
+The service automatically normalizes all scores to a unified **similarity scale [0, 1]** (higher = more similar) before applying `min_score` filtering, time-decay blending, and returning results. This ensures consistent behavior regardless of which vector store backend is configured.
+
+### Time-Decay Weighting
 
 By default, search results are ranked by a blend of **vector similarity** and **time freshness**. This prevents older, potentially outdated memories from ranking above more recent, relevant ones.
 
