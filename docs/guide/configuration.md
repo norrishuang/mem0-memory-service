@@ -14,7 +14,7 @@ vim .env
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AWS_REGION` | `us-east-1` | AWS region |
-| `VECTOR_STORE` | `opensearch` | Vector engine: `opensearch` or `s3vectors` |
+| `VECTOR_STORE` | `opensearch` | Vector engine: `opensearch`, `s3vectors`, or `pgvector` |
 | `OPENSEARCH_HOST` | `localhost` | OpenSearch host |
 | `OPENSEARCH_PORT` | `9200` | OpenSearch port |
 | `OPENSEARCH_USER` | `admin` | Username |
@@ -24,8 +24,15 @@ vim .env
 | `OPENSEARCH_COLLECTION` | `mem0_memories` | Index name |
 | `S3VECTORS_BUCKET_NAME` | — | S3Vectors bucket (required for `s3vectors` mode) |
 | `S3VECTORS_INDEX_NAME` | `mem0` | S3Vectors index name |
-| `EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` | Embedding model |
+| `PGVECTOR_HOST` | `mem0-postgres` | PostgreSQL host (pgvector mode) |
+| `PGVECTOR_PORT` | `5432` | PostgreSQL port |
+| `PGVECTOR_DB` | `mem0` | Database name |
+| `PGVECTOR_USER` | `mem0` | Database user |
+| `PGVECTOR_PASSWORD` | — | Database password |
+| `PGVECTOR_COLLECTION` | `mem0_memories` | Table name |
+| `EMBEDDING_MODEL` | `cohere.embed-multilingual-v3` | Embedding model (see [Embedding Model Selection](#embedding-model-selection)) |
 | `EMBEDDING_DIMS` | `1024` | Vector dimensions |
+| `AUDIT_LOG_RETRIEVAL_DETAIL` | `false` | When `true`, writes each retrieval request (query + results) to audit log for debugging recall quality |
 | `LLM_MODEL` | `minimax.minimax-m2.5` | LLM model for mem0 memory extraction / dedup (see [LLM selection guide](#llm-selection)) |
 | `LLM_TEMPERATURE` | `0.1` | LLM temperature |
 | `LLM_MAX_TOKENS` | `2000` | Max tokens |
@@ -51,7 +58,7 @@ OPENSEARCH_USE_SSL=true
 OPENSEARCH_VERIFY_CERTS=true
 OPENSEARCH_COLLECTION=mem0_memories
 
-EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
+EMBEDDING_MODEL=cohere.embed-multilingual-v3
 EMBEDDING_DIMS=1024
 
 # LLM — mem0 memory extraction + digest pipeline
@@ -66,6 +73,23 @@ SERVICE_PORT=8230
 # 关闭 mem0 匿名遥测（强烈建议，避免线程泄漏）
 MEM0_TELEMETRY=false
 ```
+
+## Embedding Model Selection
+
+| Model | `EMBEDDING_MODEL` value | Dims | Language | Notes |
+|-------|------------------------|------|----------|---------|
+| **Cohere Multilingual v3** ✅ | `cohere.embed-multilingual-v3` | 1024 | Multilingual (best for Chinese/English) | Default. Best for mixed Chinese/English content |
+| Amazon Titan v2 | `amazon.titan-embed-text-v2:0` | 1024 | English-primary | Legacy default; weaker cross-language semantic retrieval |
+
+::: tip
+If your memory content is primarily Chinese or mixed Chinese/English, **Cohere Multilingual v3 is strongly recommended**. Titan v2 is English-centric and produces lower-quality semantic search for non-English content.
+
+When switching models, run the migration script to regenerate all embeddings:
+```bash
+python3 tools/migrate_embedding_model.py --dry-run   # preview
+python3 tools/migrate_embedding_model.py             # migrate
+```
+:::
 
 ## LLM Selection
 

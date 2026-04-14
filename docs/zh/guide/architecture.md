@@ -118,7 +118,14 @@ flowchart TD
 | **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于 hash 去重，文件未变化时零 LLM 调用。 |
 | **auto_dream.py** / **AutoDream** | 每天 UTC 02:00 运行。**步骤一**：读取昨日完整日记 → `mem0.add(infer=True, 无 run_id)` → 长期记忆。**步骤二**：对每条 7 天前的短期记忆，调用 `mem0.add(infer=True, 无 run_id)`——mem0 LLM 与已有长期记忆比对，返回四种决策之一：`ADD`（新知识，写入）、`UPDATE`（与已有条目合并）、`DELETE`（冗余，跳过写入）、`NONE`（已完全覆盖，跳过写入）。无论何种决策，**原始短期条目处理后始终删除**。 |
 | **mem0 Memory Service** | 核心服务。使用 AWS Bedrock LLM 进行记忆提炼与去重，使用 Bedrock Embedding 进行向量化。 |
-| **向量存储** | 持久化记忆向量，支持 S3 Vectors 或 OpenSearch 作为后端。 |
+| **向量存储** | 持久化记忆向量，支持 S3 Vectors、OpenSearch 或 pgvector 作为后端。分数归一化在服务层处理——参见下方[分数归一化层](#分数归一化层)。 |
+| **SKILL.md → 检索** | Agent 新 session 启动时，读取 SKILL.md，查询 mem0 获取相关记忆，并将其注入为上下文。 |
+
+### 分数归一化层
+
+不同向量引擎返回的分数语义不一致——OpenSearch 返回相似度（越大越好），而 pgvector 和 S3 Vectors 返回余弦距离（越小越好）。
+
+服务在 `server.py` 中通过 `_normalize_scores()` 函数进行归一化处理，在执行 `min_score` 过滤、时间衰减加权或返回结果之前，将所有分数统一转换为 [0, 1] 的相似度区间。这一抽象确保上层逻辑（排序、过滤、审计日志）与具体向量引擎无关。
 | **SKILL.md → 检索** | Agent 新会话启动时，读取 SKILL.md，查询 mem0 获取相关记忆，注入为上下文。 |
 
 ## 流水线时序（UTC）

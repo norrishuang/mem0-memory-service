@@ -118,8 +118,14 @@ flowchart TD
 | **memory_sync.py** | Runs daily at UTC 01:00. Syncs each agent's `MEMORY.md` (curated knowledge) directly to mem0 long-term memory. Hash-based dedup skips unchanged files — zero LLM cost if nothing changed. |
 | **auto_dream.py** / **AutoDream** | Runs daily at UTC 02:00. **Step 1**: reads yesterday's complete diary → `mem0.add(infer=True, no run_id)` → long-term memory. **Step 2**: for each 7-day-old short-term memory, calls `mem0.add(infer=True, no run_id)` — mem0 LLM compares against existing long-term memories and returns a decision: `ADD` (new knowledge, write), `UPDATE` (merge with existing), `DELETE` (redundant, skip write), or `NONE` (already covered). Regardless of decision, the original short-term entry is always deleted after processing. |
 | **mem0 Memory Service** | Core service. Uses AWS Bedrock LLM for memory distillation/deduplication and Bedrock Embedding for vectorization. |
-| **Vector Store** | Persists memory vectors. Supports S3 Vectors or OpenSearch as the backend. |
+| **Vector Store** | Persists memory vectors. Supports S3 Vectors, OpenSearch, or pgvector as the backend. Score normalization is applied at the service layer — see [Score Normalization Layer](#score-normalization-layer) below. |
 | **SKILL.md → Retrieval** | On new agent sessions, reads SKILL.md, queries mem0 for relevant memories, and injects them as context. |
+
+### Score Normalization Layer
+
+Vector stores return scores with inconsistent semantics — OpenSearch returns similarity (higher = better), while pgvector and S3 Vectors return cosine *distance* (lower = better).
+
+The service applies a normalization layer in `server.py` (`_normalize_scores()`) that converts all scores to a unified similarity scale [0, 1] before `min_score` filtering, time-decay blending, or returning results to callers. This abstraction ensures that upstream logic (ranking, filtering, audit logging) is vector-store-agnostic.
 
 ## Pipeline Timeline (UTC)
 
