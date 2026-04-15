@@ -4,8 +4,8 @@ Documentation=https://github.com/norrishuang/mem0-memory-service
 Requires=mem0-dream.service
 
 [Timer]
-# Run daily at 18:00 UTC (02:00 Beijing Time next day)
-OnCalendar=*-*-* 18:00:00
+# Run daily at 02:00 UTC (10:00 Beijing Time)
+OnCalendar=*-*-* 02:00:00
 Persistent=true
 # If system was offline, run on next boot
 OnBootSec=5min
