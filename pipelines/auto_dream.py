@@ -163,10 +163,40 @@ def delete_memory(memory_id: str):
         raise
 
 
+# ─── Custom Extraction Prompt ───
+
+# 引导 mem0 从技术工作日记中提炼有价值的长期经验，而非碎片化事实。
+# 覆盖两个维度：
+#   1. 技术开发：踩坑记录、方案决策、配置要点
+#   2. 沟通协作：与 Boss 交互中需要注意的行为规范和偏好
+DIARY_EXTRACTION_PROMPT = """
+你是一位资深技术助理，负责从工作日记中提炼有长期价值的经验和规范，供未来工作参考。
+
+请阅读以下工作日记，提炼以下两个维度的内容：
+
+【维度一：技术开发经验】
+- 遇到了什么技术问题，最终怎么解决的
+- 做了哪些技术决策，为什么选这个方案而不是其他方案
+- 哪些做法踩坑了，下次应该避免
+- 重要的配置、环境、接口信息（端口、服务名、路径等）
+
+【维度二：与 Boss 的沟通协作规范】
+- Boss 明确要求或反复强调的工作方式（例如：某类操作前必须先确认）
+- Boss 表达不满或纠正 agent 行为的情况，以及正确做法是什么
+- Boss 的偏好和习惯（例如：沟通风格、汇报方式、工具选择）
+
+**输出要求：**
+- 每条经验用独立的自然语言段落描述，直接表述结论和规范，便于日后快速检索
+- 忽略流水账操作（如"执行了 git pull"、"切换了分支"）
+- 忽略未完成的事项，只记录已确认的结论和规范
+- 如果日记内容不涉及某个维度，该维度可以不输出
+"""
+
+
 # ─── Step 1: Digest Yesterday Diary ───
 
 def digest_yesterday(agent_id: str, workspace: Path):
-    """读取昨日日记 → POST mem0.add(infer=True, 无 run_id) → 长期记忆"""
+    """读取昨日日记 → POST mem0.add(infer=True, custom_extraction_prompt) → 长期记忆"""
     yesterday = get_utc_yesterday()
     diary_file = workspace / "memory" / f"{yesterday}.md"
     if not diary_file.exists():
@@ -181,6 +211,7 @@ def digest_yesterday(agent_id: str, workspace: Path):
         "agent_id": agent_id,
         "text": content,
         "infer": True,
+        "custom_extraction_prompt": DIARY_EXTRACTION_PROMPT,
         "metadata": {"source": "auto_dream_digest", "digest_date": yesterday}
     }, timeout=120)
     resp.raise_for_status()
