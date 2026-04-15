@@ -378,6 +378,85 @@ def _merge_results(primary: list, shared: list, seen_ids: set = None):
     return merged
 
 
+@app.post("/memory/dream")
+async def dream_memory(req: AddMemoryRequest):
+    """
+    Add memories with a per-request custom fact extraction prompt.
+
+    Unlike /memory/add (which uses the global mem0 instance), this endpoint
+    creates a temporary Memory instance with custom_fact_extraction_prompt
+    injected into its config. Used by auto_dream to guide structured
+    experience extraction from diary content.
+
+    The temporary instance shares the same vector store and embedder,
+    so memories are stored in the same collection as normal.
+    """
+    if not req.messages and not req.text:
+        raise HTTPException(status_code=400, detail="Either 'messages' or 'text' is required")
+    if not req.custom_extraction_prompt:
+        raise HTTPException(status_code=400, detail="custom_extraction_prompt is required for /memory/dream")
+
+    kwargs = {"user_id": req.user_id}
+    if req.agent_id:
+        kwargs["agent_id"] = req.agent_id
+    if req.run_id:
+        kwargs["run_id"] = req.run_id
+    if req.metadata:
+        kwargs["metadata"] = req.metadata
+
+    async with _add_semaphore:
+        try:
+            loop = asyncio.get_event_loop()
+            infer = req.infer
+            custom_prompt = req.custom_extraction_prompt
+
+            def _dream_with_tracking():
+                # Build a temporary Memory instance with custom_fact_extraction_prompt
+                dream_config = get_mem0_config()
+                dream_config["custom_fact_extraction_prompt"] = custom_prompt
+                dream_memory_instance = Memory.from_config(dream_config)
+                replace_llm_with_tracked(dream_memory_instance)
+
+                reset_token_counter()
+                if req.messages:
+                    result = dream_memory_instance.add(req.messages, infer=infer, **kwargs)
+                else:
+                    result = dream_memory_instance.add(req.text, infer=infer, **kwargs)
+                return result, get_token_stats()
+
+            result, token_stats = await loop.run_in_executor(_mem0_executor, _dream_with_tracking)
+
+            # Write token usage to audit log
+            if token_stats["llm_calls"] > 0:
+                token_log = {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "type": "token_usage",
+                    "path": "/memory/dream",
+                    "agent_id": req.agent_id or "-",
+                    "user_id": req.user_id,
+                    "llm_calls": token_stats["llm_calls"],
+                    "input_tokens": token_stats["input_tokens"],
+                    "output_tokens": token_stats["output_tokens"],
+                    "total_tokens": token_stats["total_tokens"],
+                }
+                try:
+                    with get_audit_log_path().open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(token_log, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+
+            return {"status": "ok", "result": result, "token_usage": token_stats}
+        except Exception as e:
+            err_str = str(e)
+            if '"event": "NONE"' in err_str or ("NONE" in err_str and "Parameter validation failed" in err_str):
+                logger.warning(f"Ignored event=NONE from mem0 (no action needed): {err_str}")
+                return {"status": "ok", "result": {"results": [], "relations": []}, "note": "event=NONE skipped"}
+            logger.error(f"Error in dream_memory: {e}", exc_info=True)
+            if "Parameter validation failed" in err_str or "float32" in err_str:
+                raise HTTPException(status_code=503, detail="Embedding service temporarily unavailable")
+            raise HTTPException(status_code=500, detail=err_str)
+
+
 @app.post("/memory/search")
 async def search_memory(req: SearchMemoryRequest):
     """

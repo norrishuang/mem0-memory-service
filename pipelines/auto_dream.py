@@ -206,16 +206,16 @@ def digest_yesterday(agent_id: str, workspace: Path):
     if not content:
         logger.info(f"[{agent_id}] Empty diary for {yesterday}, skipping digest")
         return
-    resp = requests.post(f"{BASE_URL}/memory/add", json={
+    resp = requests.post(f"{BASE_URL}/memory/dream", json={
         "user_id": USER_ID,
         "agent_id": agent_id,
         "text": content,
         "infer": True,
         "custom_extraction_prompt": DIARY_EXTRACTION_PROMPT,
         "metadata": {"source": "auto_dream_digest", "digest_date": yesterday}
-    }, timeout=120)
+    }, timeout=180)
     resp.raise_for_status()
-    logger.info(f"[{agent_id}] Digested yesterday diary ({len(content)} chars) into long-term memory")
+    logger.info(f"[{agent_id}] Digested yesterday diary ({len(content)} chars) into long-term memory via /memory/dream")
 
 
 # ─── Step 2: Consolidate Old Short-Term Memories ───
