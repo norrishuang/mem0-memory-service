@@ -32,6 +32,7 @@ OFFSET_FILE = DATA_DIR / "auto_digest_offset.json"
 _raw_url = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 MEM0_BASE_URL = _raw_url.removesuffix("/memory/add").removesuffix("/")
 MEM0_API_URL = f"{MEM0_BASE_URL}/memory/add"
+MEM0_DREAM_URL = f"{MEM0_BASE_URL}/memory/dream"
 MIN_CONTENT_BYTES = 5000   # 新增内容少于此值则跳过（避免无意义的小更新）
 MAX_BLOCK_BYTES = 100 * 1024  # Max bytes per session block before sub-splitting (100KB)
 BATCH_SIZE_BYTES = MAX_BLOCK_BYTES  # Legacy alias — only used as fallback for oversized blocks
@@ -204,15 +205,15 @@ def extract_and_write_task_memories(block: str, run_id: str, agent_id: str) -> i
             "digest_date": run_id,
             "workspace_agent": agent_id,
         }
-        resp = requests.post(MEM0_API_URL, json={
+        resp = requests.post(MEM0_DREAM_URL, json={
             "user_id": "boss",
             "agent_id": agent_id,
             "run_id": run_id,
             "text": block[:3000],
             "infer": True,
-            "metadata": metadata,
             "custom_extraction_prompt": TASK_EXTRACTION_PROMPT,
-        }, timeout=120)
+            "metadata": metadata,
+        }, timeout=180)
         resp.raise_for_status()
         result = resp.json().get("result", {})
         written = len([r for r in result.get("results", []) if r.get("event") in ("ADD", "UPDATE")])

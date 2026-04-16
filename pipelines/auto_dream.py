@@ -163,10 +163,46 @@ def delete_memory(memory_id: str):
         raise
 
 
+# ─── Custom Extraction Prompt ───
+
+# 引导 mem0 从技术工作日记中提炼有价值的长期经验，而非碎片化事实。
+# 覆盖两个维度：
+#   1. 技术开发：踩坑记录、方案决策、配置要点
+#   2. 沟通协作：与 Boss 交互中需要注意的行为规范和偏好
+DIARY_EXTRACTION_PROMPT = """
+你是一位资深技术助理，专门从工作日记中提炼有长期价值的经验规范，供未来工作参考。
+
+请阅读以下工作日记，聚焦提炼以下两个维度的内容：
+
+【维度一：技术开发经验】
+- 技术问题的最终解决方案（不是过程，是结论）
+- 技术选型决策及理由（为什么选 A 不选 B）
+- 踩过的坑、下次应该怎么避免
+- 重要配置、环境、接口信息（端口、服务名、路径等关键参数）
+
+【维度二：与 Boss 的沟通协作规范】
+- Boss 明确要求或纠正过的工作方式（例如：某类操作前必须先确认）
+- Boss 的偏好和习惯（工具选择、汇报方式、沟通风格等）
+- Agent 被纠正过的错误行为及正确做法
+
+**提炼原则：**
+- 只记录已确认的结论，不记录正在进行中的事项
+- 忽略纯操作步骤（如"执行了 git pull"）
+- 每条经验应独立、自完备，能被单独理解
+- 用中文描述，直接表述结论
+
+**输出格式（必须严格遵守）：**
+返回 JSON 格式，key 为 "facts"，value 为字符串列表，每条为一个独立经验：
+{"facts": ["经验1", "经验2", ...]}
+
+如无有价值内容，返回：{"facts": []}
+"""
+
+
 # ─── Step 1: Digest Yesterday Diary ───
 
 def digest_yesterday(agent_id: str, workspace: Path):
-    """读取昨日日记 → POST mem0.add(infer=True, 无 run_id) → 长期记忆"""
+    """读取昨日日记 → POST mem0.add(infer=True, custom_extraction_prompt) → 长期记忆"""
     yesterday = get_utc_yesterday()
     diary_file = workspace / "memory" / f"{yesterday}.md"
     if not diary_file.exists():
@@ -176,15 +212,16 @@ def digest_yesterday(agent_id: str, workspace: Path):
     if not content:
         logger.info(f"[{agent_id}] Empty diary for {yesterday}, skipping digest")
         return
-    resp = requests.post(f"{BASE_URL}/memory/add", json={
+    resp = requests.post(f"{BASE_URL}/memory/dream", json={
         "user_id": USER_ID,
         "agent_id": agent_id,
         "text": content,
         "infer": True,
+        "custom_extraction_prompt": DIARY_EXTRACTION_PROMPT,
         "metadata": {"source": "auto_dream_digest", "digest_date": yesterday}
-    }, timeout=120)
+    }, timeout=180)
     resp.raise_for_status()
-    logger.info(f"[{agent_id}] Digested yesterday diary ({len(content)} chars) into long-term memory")
+    logger.info(f"[{agent_id}] Digested yesterday diary ({len(content)} chars) into long-term memory via /memory/dream")
 
 
 # ─── Step 2: Consolidate Old Short-Term Memories ───
