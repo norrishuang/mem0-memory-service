@@ -116,22 +116,32 @@ _TS_RE = re.compile(r'(?:###?\s+\[?(\d{1,2}:\d{2})\]?|##\s+(\d{1,2}:\d{2}))')
 
 
 def _is_stale_batch(content: str, date: str) -> bool:
-    """返回 True 表示批次内所有时间戳均早于当前北京时间（UTC+8），应跳过。
+    """返回 True 表示批次内容应跳过。
+
+    仅对「今天」的内容做时间戳检查：如果 block 里所有时间戳都在
+    「当前北京时间 + 30 分钟缓冲」之后，说明是还没发生的未来内容，跳过。
+    对历史日期（非今天）的内容，永远不跳过。
     若无法提取时间戳则返回 False（正常处理）。
     """
+    # 非今天的内容（历史回补）一律不跳过
+    today_bj = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    if date != today_bj:
+        return False
+
     matches = _TS_RE.findall(content)
     times = [t1 or t2 for t1, t2 in matches]
     if not times:
         return False
 
+    # 今天的内容：若所有时间戳都在「当前时间 + 30 分钟」之后，才视为未来内容跳过
     now_bj = datetime.now(timezone(timedelta(hours=8)))
-    current_hm = now_bj.hour * 60 + now_bj.minute
+    future_hm = now_bj.hour * 60 + now_bj.minute + 30
 
     for t in times:
         h, m = map(int, t.split(":"))
-        if h * 60 + m >= current_hm:
-            return False
-    return True
+        if h * 60 + m <= future_hm:
+            return False  # 有时间戳 <= 当前+30min，说明是已发生内容，不跳过
+    return True  # 所有时间戳都在未来 30min 之后，才跳过
 
 
 # ─── Offset Management (for incremental mode) ───
