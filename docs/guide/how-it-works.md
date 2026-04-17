@@ -427,6 +427,21 @@ Example output:
 
 Use the key (e.g. `dev`, `main`, `blog`) as your `--agent` value.
 
+## AutoDream: The Sleeping Brain
+
+> *"Every night, while the agent sleeps, its memories are quietly being sorted, promoted, and pruned — just like a human brain during REM sleep."*
+
+The memory pipeline has two stages inspired by how human memory consolidation works:
+
+- **Auto Digest (The Subconscious)** — runs every 15 minutes during the day, continuously absorbing new diary content into short-term memory via dual-pass fact extraction
+- **Auto Dream (Deep Sleep)** — runs once at night (UTC 02:00), reflecting on cross-day patterns, promoting 7-day-old short-term memories into long-term, and pruning redundancy
+
+Neither stage requires human intervention. The agent wakes up the next morning with a richer, more organized memory.
+
+For the full design, step-by-step pipeline breakdown, and a real end-to-end example, see **[AutoDream: The Sleeping Brain](./auto-dream)**.
+
+---
+
 ## Memory Dashboard
 
 For a visual interface to browse, search, and manage memories, see [Memory Dashboard](./memory-dashboard).
