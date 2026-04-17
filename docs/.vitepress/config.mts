@@ -27,7 +27,7 @@ export default withMermaid(defineConfig({
               items: [
                 { text: '安装与部署', link: '/zh/guide/getting-started' },
                 { text: '工作原理', link: '/zh/guide/how-it-works' },
-                { text: '🌙 AutoDream：沉睡的大脑', link: '/guide/auto-dream' },
+                { text: '🌙 AutoDream：沉睡的大脑', link: '/zh/guide/auto-dream' },
                 { text: '📊 可视化监控', link: '/zh/guide/memory-dashboard' },
                 { text: '系统架构', link: '/zh/guide/architecture' },
                 { text: '配置说明', link: '/zh/guide/configuration' },
