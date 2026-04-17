@@ -3,7 +3,7 @@
 auto_dream.py - AutoDream 记忆沉淀（夜间自动巩固）
 
 每天 UTC 02:00 运行，对每个 agent 执行三步：
-  Step 1: 读取昨日日记 → POST mem0.add(infer=True, 无 run_id) → 长期记忆
+  Step 1: 读取近 7 天日记 → 合并分析跨日规律 → POST mem0.dream(infer=True) → 长期记忆
   Step 2: 找到 7 天前的短期记忆 → 逐条 re-add 到 mem0(infer=True, 无 run_id) → 删除原始短期条目
          mem0 原生决定 ADD/UPDATE/DELETE/NONE，不再手写语义搜索判断。
   Step 3: 扫描已有长期记忆，找出语义高度相似的冗余对，用 mem0 infer=True 合并去冗余。
@@ -165,63 +165,75 @@ def delete_memory(memory_id: str):
 
 # ─── Custom Extraction Prompt ───
 
-# 引导 mem0 从技术工作日记中提炼有价值的长期经验，而非碎片化事实。
-# 覆盖两个维度：
-#   1. 技术开发：踩坑记录、方案决策、配置要点
-#   2. 沟通协作：与 Boss 交互中需要注意的行为规范和偏好
-DIARY_EXTRACTION_PROMPT = """
-你是一位资深技术助理，专门从工作日记中提炼有长期价值的经验规范，供未来工作参考。
+# 引导 mem0 从多天日记中提炼跨日规律性结论，而非单次事件。
+REFLECTION_PROMPT = """
+你是一位资深技术助理，专门从多天工作日记中提炼具有规律性和反思价值的长期经验。
 
-请阅读以下工作日记，聚焦提炼以下两个维度的内容：
+请阅读以下多天工作日记，**不要提炼单次事件的结论**（那是 auto_digest 的工作），而是聚焦以下几个维度：
 
-【维度一：技术开发经验】
-- 技术问题的最终解决方案（不是过程，是结论）
-- 技术选型决策及理由（为什么选 A 不选 B）
-- 踩过的坑、下次应该怎么避免
-- 重要配置、环境、接口信息（端口、服务名、路径等关键参数）
+【维度一：反复出现的问题】
+- 同类错误在多天中出现 2 次以上
+- 反复踩的坑、反复遗忘的步骤
+- 举例：「XXX 参数名连续两次传错，应该固定记住正确参数名是 YYY」
 
-【维度二：与 Boss 的沟通协作规范】
-- Boss 明确要求或纠正过的工作方式（例如：某类操作前必须先确认）
-- Boss 的偏好和习惯（工具选择、汇报方式、沟通风格等）
-- Agent 被纠正过的错误行为及正确做法
+【维度二：Agent 自身失误模式】
+- Agent 判断错误、遗漏确认步骤、自作主张导致返工
+- 举例：「两次在未确认 Boss 意图的情况下直接执行了有副作用的操作」
+
+【维度三：被 Boss 纠正的行为规律】
+- Boss 明确纠正或提出异议的操作方式
+- 多次被指出的沟通/汇报问题
+- 举例：「Boss 多次要求先查看状态再操作，不要直接执行」
+
+【维度四：耗时/绕路模式】
+- 反复出现走弯路、回退操作的任务类型
+- 可以提前规避的排查路径
+- 举例：「SSH 连接问题每次都要试多种 key，应该提前记录哪个 key 对应哪个集群」
 
 **提炼原则：**
-- 只记录已确认的结论，不记录正在进行中的事项
-- 忽略纯操作步骤（如"执行了 git pull"）
-- 每条经验应独立、自完备，能被单独理解
-- 用中文描述，直接表述结论
+- 必须是跨越多天、有规律性的观察，单次事件不写
+- 每条结论应自完备、可独立理解
+- 用中文，直接表述结论和建议
+- 如果日记天数太少（不足 3 天有内容）或找不到规律，返回空列表
 
 **输出格式（必须严格遵守）：**
-返回 JSON 格式，key 为 "facts"，value 为字符串列表，每条为一个独立经验：
-{"facts": ["经验1", "经验2", ...]}
+{"facts": ["规律性结论1", "规律性结论2", ...]}
 
-如无有价值内容，返回：{"facts": []}
+如无规律性内容，返回：{"facts": []}
 """
 
 
-# ─── Step 1: Digest Yesterday Diary ───
+# ─── Step 1: Reflect on Recent Week Diaries ───
 
-def digest_yesterday(agent_id: str, workspace: Path):
-    """读取昨日日记 → POST mem0.add(infer=True, custom_extraction_prompt) → 长期记忆"""
-    yesterday = get_utc_yesterday()
-    diary_file = workspace / "memory" / f"{yesterday}.md"
-    if not diary_file.exists():
-        logger.info(f"[{agent_id}] No diary for {yesterday}, skipping digest")
+def reflect_week(agent_id: str, workspace: Path):
+    """读取近 7 天日记 → 合并分析 → POST mem0.dream(infer=True, REFLECTION_PROMPT) → 长期记忆"""
+    today = datetime.utcnow().date()
+    sections = []
+    for i in range(1, 8):  # 昨天到 7 天前
+        date = today - timedelta(days=i)
+        diary_file = workspace / "memory" / f"{date}.md"
+        if not diary_file.exists():
+            continue
+        content = diary_file.read_text(encoding="utf-8").strip()
+        if content:
+            sections.append(f"=== {date} ===\n{content}")
+
+    if not sections:
+        logger.info(f"[{agent_id}] No diaries found in past 7 days, skipping reflect")
         return
-    content = diary_file.read_text(encoding="utf-8").strip()
-    if not content:
-        logger.info(f"[{agent_id}] Empty diary for {yesterday}, skipping digest")
-        return
+
+    combined = "\n\n".join(sections)
+    date_range = f"{today - timedelta(days=7)}~{today - timedelta(days=1)}"
     resp = requests.post(f"{BASE_URL}/memory/dream", json={
         "user_id": USER_ID,
         "agent_id": agent_id,
-        "text": content,
+        "text": combined,
         "infer": True,
-        "custom_extraction_prompt": DIARY_EXTRACTION_PROMPT,
-        "metadata": {"source": "auto_dream_digest", "digest_date": yesterday}
+        "custom_extraction_prompt": REFLECTION_PROMPT,
+        "metadata": {"source": "auto_dream_reflect", "reflect_range": date_range}
     }, timeout=180)
     resp.raise_for_status()
-    logger.info(f"[{agent_id}] Digested yesterday diary ({len(content)} chars) into long-term memory via /memory/dream")
+    logger.info(f"[{agent_id}] Reflected on {len(sections)} days ({len(combined)} chars) into long-term memory")
 
 
 # ─── Step 2: Consolidate Old Short-Term Memories ───
@@ -399,8 +411,8 @@ def main():
 
     for agent_id, workspace in sorted(workspaces.items()):
         try:
-            # Step 1: digest yesterday diary → long-term memory
-            digest_yesterday(agent_id, workspace)
+            # Step 1: reflect on recent week diaries → long-term memory
+            reflect_week(agent_id, workspace)
             # Step 2: consolidate 7-day-old short-term → long-term, then delete
             total_consolidated += consolidate_old_memories(agent_id, target_run_id)
         except Exception as e:
