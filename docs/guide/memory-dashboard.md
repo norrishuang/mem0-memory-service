@@ -42,25 +42,7 @@ http://ec2-xx-xx-xx-xx.compute-1.amazonaws.com:8230/ui
 
 ## Interface Overview
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  mem0 Memory Dashboard                                        │
-│  ┌────────────────┐  ┌──────────────────────┐  [Search]     │
-│  │ Agent: dev  ▼  │  │ Search memories...   │               │
-│  └────────────────┘  └──────────────────────┘               │
-│                                                               │
-│  ┌───────────────────────────────────────────────────────┐   │
-│  │ [dev]  [92%]  [短期]  [Auto]              2026-04-07  │   │
-│  │ kiro-cli: always use exec(pty=true, background=true,  │   │
-│  │ workdir=...) — never add & in command                 │   │
-│  └───────────────────────────────────────────────────────┘   │
-│  ┌───────────────────────────────────────────────────────┐   │
-│  │ [dev]  [长期]                             2026-04-06  │   │
-│  │ mem0-memory-service: port 8230, systemd               │   │
-│  │ mem0-memory.service, GitHub norrishuang/...           │   │
-│  └───────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────┘
-```
+![Project Logo](../../images/memory-dashboard.png)
 
 ## Badge Reference
 
