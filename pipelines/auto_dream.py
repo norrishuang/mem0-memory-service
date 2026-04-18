@@ -3,7 +3,10 @@
 auto_dream.py - AutoDream 记忆沉淀（夜间自动巩固）
 
 每天 UTC 02:00 运行，对每个 agent 执行三步：
-  Step 1: 读取近 7 天日记 → 合并分析跨日规律 → POST mem0.dream(infer=True) → 长期记忆
+  Step 1: 读取近 7 天日记 → 两步处理：
+          1A. 每天日记单独用 LLM 提炼摘要 facts（不写入 mem0）
+          1B. 把所有日摘要合并，用 REFLECTION_PROMPT 做跨日规律分析 → 写入 mem0 长期记忆
+          （改造原因：一次性 258K chars 导致 LLM 返回空结果，分块后每步输入量可控）
   Step 2: 找到 7 天前的短期记忆 → 逐条 re-add 到 mem0(infer=True, 无 run_id) → 删除原始短期条目
          mem0 原生决定 ADD/UPDATE/DELETE/NONE，不再手写语义搜索判断。
   Step 3: 扫描已有长期记忆，找出语义高度相似的冗余对，用 mem0 infer=True 合并去冗余。
@@ -13,11 +16,14 @@ auto_dream.py - AutoDream 记忆沉淀（夜间自动巩固）
 import json
 import logging
 import os
+import re
 import sys
 import time
 import requests
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import boto3
 
 # ─── Configuration ───
 
@@ -163,9 +169,77 @@ def delete_memory(memory_id: str):
         raise
 
 
-# ─── Custom Extraction Prompt ───
+# ─── LLM Helper (direct Bedrock call for daily summary) ───
 
-# 引导 mem0 从多天日记中提炼跨日规律性结论，而非单次事件。
+def _call_llm_for_summary(text: str, prompt: str) -> list[str]:
+    """
+    直接调 Bedrock Converse API 提炼摘要，不经过 mem0（避免写入存储）。
+    返回 facts 字符串列表；失败时返回空列表。
+    """
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from config import DIGEST_LLM_MODEL, AWS_REGION
+
+    client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+    model_id = DIGEST_LLM_MODEL
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"text": f"{prompt}\n\n---\n\n{text}"}]
+        }
+    ]
+
+    try:
+        response = client.converse(
+            modelId=model_id,
+            messages=messages,
+            inferenceConfig={"maxTokens": 4000, "temperature": 0.1},
+        )
+        # MiniMax 将 reasoningContent 和 text 分两个 block 返回，只取 text block
+        content_blocks = response["output"]["message"]["content"]
+        output = ""
+        for block in content_blocks:
+            if "text" in block:
+                output = block["text"].strip()
+                break
+        if not output:
+            logger.warning(f"No text block in LLM response: {content_blocks}")
+            return []
+        # 尝试解析 JSON
+        # 先尝试直接解析
+        try:
+            data = json.loads(output)
+            return data.get("facts", [])
+        except json.JSONDecodeError:
+            pass
+        # 容错：提取 ```json ... ``` 块
+        m = re.search(r'```(?:json)?\s*({.*?})\s*```', output, re.DOTALL)
+        if m:
+            data = json.loads(m.group(1))
+            return data.get("facts", [])
+        # 容错：找 { ... } 块
+        m = re.search(r'({[^{}]+})', output, re.DOTALL)
+        if m:
+            data = json.loads(m.group(1))
+            return data.get("facts", [])
+        logger.warning(f"LLM output could not be parsed as JSON: {output[:200]}")
+        return []
+    except Exception as e:
+        logger.warning(f"LLM call failed: {e}")
+        return []
+
+
+# ─── Custom Extraction Prompts ───
+
+# Step 1A：单日日记摘要（不写 mem0，只用于中间处理）
+DAILY_SUMMARY_PROMPT = """\
+你是一位技术助理，请阅读以下单日工作日记，提炼出最重要的技术事件、决策和问题（每条20-50字，中文）。
+只提炼有实质内容的事实，不要写流水账，不要重复相似内容。
+输出格式（必须严格遵守）：{"facts": ["事实1", "事实2", ...]}
+如无实质内容，返回：{"facts": []}
+"""
+
+# Step 1B：引导 mem0 从多天日记摘要中提炼跨日规律性结论，而非单次事件。
 REFLECTION_PROMPT = """
 你是一位资深技术助理，专门从多天工作日记中提炼具有规律性和反思价值的长期经验。
 
@@ -205,35 +279,61 @@ REFLECTION_PROMPT = """
 
 # ─── Step 1: Reflect on Recent Week Diaries ───
 
+DAILY_CHUNK_LIMIT = 60_000  # 单日日记最大字符数，超出截断避免超出 LLM context
+
+
 def reflect_week(agent_id: str, workspace: Path):
-    """读取近 7 天日记 → 合并分析 → POST mem0.dream(infer=True, REFLECTION_PROMPT) → 长期记忆"""
+    """
+    两步法反思近 7 天日记：
+    Step 1A：每天日记单独用 LLM 提炼摘要 facts（直接调 Bedrock，不写 mem0）
+    Step 1B：把所有日摘要合并，用 REFLECTION_PROMPT 做跨日规律分析 → 写入 mem0 长期记忆
+    """
     today = datetime.utcnow().date()
-    sections = []
+
+    # ── Step 1A: 每日摘要 ──
+    daily_summaries = {}  # date_str → list[str]
     for i in range(1, 8):  # 昨天到 7 天前
         date = today - timedelta(days=i)
         diary_file = workspace / "memory" / f"{date}.md"
         if not diary_file.exists():
             continue
         content = diary_file.read_text(encoding="utf-8").strip()
-        if content:
-            sections.append(f"=== {date} ===\n{content}")
+        if not content:
+            continue
+        # 截断过长的单日日记
+        if len(content) > DAILY_CHUNK_LIMIT:
+            logger.info(f"[{agent_id}] Daily diary {date} truncated from {len(content)} to {DAILY_CHUNK_LIMIT} chars")
+            content = content[:DAILY_CHUNK_LIMIT]
+        facts = _call_llm_for_summary(content, DAILY_SUMMARY_PROMPT)
+        logger.info(f"[{agent_id}] Daily summary for {date}: {len(facts)} facts")
+        if facts:
+            daily_summaries[str(date)] = facts
 
-    if not sections:
+    if not daily_summaries:
         logger.info(f"[{agent_id}] No diaries found in past 7 days, skipping reflect")
         return
 
-    combined = "\n\n".join(sections)
+    # ── Step 1B: 跨日规律反思 ──
+    # 把每日摘要拼成结构化文本，大幅压缩输入量
+    summary_sections = []
+    for date_str, facts in sorted(daily_summaries.items()):
+        facts_text = "\n".join(f"- {f}" for f in facts)
+        summary_sections.append(f"=== {date_str} 摘要 ===\n{facts_text}")
+    combined_summary = "\n\n".join(summary_sections)
+
     date_range = f"{today - timedelta(days=7)}~{today - timedelta(days=1)}"
+    logger.info(f"[{agent_id}] Cross-day reflection input: {len(daily_summaries)} days, {len(combined_summary)} chars")
+
     resp = requests.post(f"{BASE_URL}/memory/dream", json={
         "user_id": USER_ID,
         "agent_id": agent_id,
-        "text": combined,
+        "text": combined_summary,
         "infer": True,
         "custom_extraction_prompt": REFLECTION_PROMPT,
         "metadata": {"source": "auto_dream_reflect", "reflect_range": date_range}
     }, timeout=180)
     resp.raise_for_status()
-    logger.info(f"[{agent_id}] Reflected on {len(sections)} days ({len(combined)} chars) into long-term memory")
+    logger.info(f"[{agent_id}] Reflected on {len(daily_summaries)} days into long-term memory")
 
 
 # ─── Step 2: Consolidate Old Short-Term Memories ───
