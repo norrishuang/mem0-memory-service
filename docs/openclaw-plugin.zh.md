@@ -187,7 +187,7 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
   提示  → before_prompt_build → 搜索 → 注入
 
 批处理路径（流水线）：
-  session → session_snapshot（5分钟）→ 日记文件
+  session → session_snapshot（每15分钟）→ 日记文件
   日记    → auto_digest（每天 UTC 01:30）  → mem0 短期记忆
   每晚    → auto_dream（UTC 18:00）        → 长期记忆精炼
 ```

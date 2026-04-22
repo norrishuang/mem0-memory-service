@@ -188,7 +188,7 @@ Real-time path (Plugin):
   Prompt       → before_prompt_build → search → inject
 
 Batch path (Pipelines):
-  Session → session_snapshot (5 min) → diary file
+  Session → session_snapshot (every 15 min) → diary file
   Diary   → auto_digest (daily UTC 01:30) → mem0 short-term
   Nightly → auto_dream (UTC 18:00) → long-term consolidation
 ```
