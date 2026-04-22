@@ -20,6 +20,7 @@ const DEFAULT_CONFIG = {
   injectMaxChars: 800,
   debounceMs: 60000, // 1 minute debounce per sessionKey
   injectTimeoutMs: 3000,
+  compactionMaxChars: 8000, // max chars to flush before compaction
 };
 
 // Debounce map: sessionKey -> last write timestamp
@@ -78,6 +79,30 @@ function extractLastExchange(messages) {
   if (lastAssistant) parts.push(`Assistant: ${lastAssistant}`);
 
   return parts.join("\n\n");
+}
+
+/**
+ * Extract all messages as a single text block for compaction flush.
+ * Format: "User: ...\n\nAssistant: ...\n\nUser: ...\n\n..."
+ * Truncated to maxChars total.
+ */
+function extractAllMessages(messages, maxChars = 8000) {
+  if (!Array.isArray(messages) || messages.length === 0) return null;
+
+  const parts = [];
+  for (const msg of messages) {
+    if (!msg || !msg.role) continue;
+    if (msg.role !== "user" && msg.role !== "assistant") continue;
+    const text = extractTextContent(msg.content);
+    if (!text.trim()) continue;
+    const role = msg.role === "user" ? "User" : "Assistant";
+    parts.push(`${role}: ${text}`);
+  }
+
+  if (parts.length === 0) return null;
+
+  const full = parts.join("\n\n");
+  return full.slice(0, maxChars);
 }
 
 function extractTextContent(content) {
@@ -214,13 +239,13 @@ const plugin = {
           const messages = event.messages;
           if (!Array.isArray(messages) || messages.length === 0) return;
 
-          const exchange = extractLastExchange(messages);
-          if (!exchange) return;
+          const fullContext = extractAllMessages(messages, cfg.compactionMaxChars);
+          if (!fullContext) return;
 
-          await writeToMem0(cfg, agentId, exchange, true);
+          await writeToMem0(cfg, agentId, fullContext, true);
           markWritten(ctx.sessionKey);
           console.log(
-            `[mem0-plugin] before_compaction: flushed to mem0 agent=${agentId}`
+            `[mem0-plugin] before_compaction: flushed ${fullContext.length} chars agent=${agentId}`
           );
         } catch (err) {
           console.error(`[mem0-plugin] before_compaction error:`, err.message);
