@@ -12,7 +12,9 @@ const DEFAULT_CONFIG = {
   userId: "boss",
   agentIds: ["dev", "main", "pm", "researcher", "pjm", "prototype"],
   enableWrite: true,
+  enableRawWrite: false,
   enableInject: true,
+  minExchangeLength: 100,
   injectLimit: 5,
   injectMaxChars: 800,
   debounceMs: 60000, // 1 minute debounce per sessionKey
@@ -90,13 +92,13 @@ function extractTextContent(content) {
   return String(content).slice(0, 2000);
 }
 
-async function writeToMem0(cfg, agentId, text) {
+async function writeToMem0(cfg, agentId, text, infer = true) {
   const url = `${cfg.mem0Url}/memory/add`;
   const body = JSON.stringify({
     text,
     user_id: cfg.userId,
     agent_id: agentId,
-    infer: true,
+    infer,
   });
 
   const resp = await fetch(url, {
@@ -166,31 +168,35 @@ const plugin = {
       `[mem0-plugin] Registered. mem0Url=${cfg.mem0Url} userId=${cfg.userId} agentIds=${cfg.agentIds.join(",")}`
     );
     console.log(
-      `[mem0-plugin] enableWrite=${cfg.enableWrite} enableInject=${cfg.enableInject}`
+      `[mem0-plugin] enableWrite=${cfg.enableWrite} enableRawWrite=${cfg.enableRawWrite} enableInject=${cfg.enableInject}`
     );
 
     // ── 1. agent_end: write conversation turn to mem0 ──
-    if (cfg.enableWrite) {
+    if (cfg.enableWrite || cfg.enableRawWrite) {
       api.on("agent_end", async (event, ctx) => {
         try {
           if (!event.success) return;
           const agentId = ctx.agentId;
           if (!shouldProcess(agentId, cfg)) return;
-          if (isDebounced(ctx.sessionKey, cfg)) {
-            console.log(
-              `[mem0-plugin] agent_end debounced for session=${ctx.sessionKey}`
-            );
-            return;
-          }
+          if (isDebounced(ctx.sessionKey, cfg)) return;
 
           const exchange = extractLastExchange(event.messages);
           if (!exchange) return;
 
-          await writeToMem0(cfg, agentId, exchange);
-          markWritten(ctx.sessionKey);
-          console.log(
-            `[mem0-plugin] agent_end: wrote to mem0 agent=${agentId} session=${ctx.sessionKey}`
-          );
+          // 过滤太短的内容（纯寒暄/确认）
+          if (exchange.length < cfg.minExchangeLength) return;
+
+          if (cfg.enableWrite) {
+            // infer=true，让 mem0 自动提炼
+            await writeToMem0(cfg, agentId, exchange, true);
+            markWritten(ctx.sessionKey);
+            console.log(`[mem0-plugin] agent_end: infer write agent=${agentId}`);
+          } else if (cfg.enableRawWrite) {
+            // infer=false，原文存入
+            await writeToMem0(cfg, agentId, exchange, false);
+            markWritten(ctx.sessionKey);
+            console.log(`[mem0-plugin] agent_end: raw write agent=${agentId}`);
+          }
         } catch (err) {
           console.error(`[mem0-plugin] agent_end error:`, err.message);
         }
@@ -208,7 +214,7 @@ const plugin = {
           const exchange = extractLastExchange(messages);
           if (!exchange) return;
 
-          await writeToMem0(cfg, agentId, exchange);
+          await writeToMem0(cfg, agentId, exchange, true);
           markWritten(ctx.sessionKey);
           console.log(
             `[mem0-plugin] before_compaction: flushed to mem0 agent=${agentId}`
