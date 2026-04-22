@@ -118,7 +118,7 @@ function extractTextContent(content) {
   return String(content).slice(0, 2000);
 }
 
-async function writeToMem0(cfg, agentId, text, infer = true) {
+async function writeToMem0(cfg, agentId, text, infer = true, timeoutMs = 5000) {
   const url = `${cfg.mem0Url}/memory/add`;
   const body = JSON.stringify({
     text,
@@ -131,7 +131,7 @@ async function writeToMem0(cfg, agentId, text, infer = true) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body,
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!resp.ok) {
@@ -242,7 +242,7 @@ const plugin = {
           const fullContext = extractAllMessages(messages, cfg.compactionMaxChars);
           if (!fullContext) return;
 
-          await writeToMem0(cfg, agentId, fullContext, true);
+          await writeToMem0(cfg, agentId, fullContext, true, 120000); // 120s timeout for large flush
           markWritten(ctx.sessionKey);
           console.log(
             `[mem0-plugin] before_compaction: flushed ${fullContext.length} chars agent=${agentId}`
