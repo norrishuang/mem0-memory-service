@@ -33,7 +33,7 @@ _raw_url = os.environ.get("MEM0_API_URL", "http://127.0.0.1:8230")
 MEM0_BASE_URL = _raw_url.removesuffix("/memory/add").removesuffix("/")
 MEM0_API_URL = f"{MEM0_BASE_URL}/memory/add"
 MEM0_DREAM_URL = f"{MEM0_BASE_URL}/memory/dream"
-MIN_CONTENT_BYTES = 5000   # 新增内容少于此值则跳过（避免无意义的小更新）
+MIN_CONTENT_BYTES = 2000   # 新增内容少于此值则跳过（避免无意义的小更新）
 MAX_BLOCK_BYTES = 100 * 1024  # Max bytes per session block before sub-splitting (100KB)
 BATCH_SIZE_BYTES = MAX_BLOCK_BYTES  # Legacy alias — only used as fallback for oversized blocks
 BATCH_SLEEP_SECS = 5      # 批次间 sleep，避免打爆 mem0
@@ -177,12 +177,13 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
             "workspace_agent": agent_id
         }
 
-        resp = requests.post(MEM0_API_URL, json={
+        resp = requests.post(MEM0_DREAM_URL, json={
             "user_id": "boss",
             "agent_id": agent_id,
             "run_id": run_id,
             "text": event,
             "infer": True,
+            "custom_extraction_prompt": DIGEST_EXTRACTION_PROMPT,
             "metadata": metadata
         }, timeout=120)
         resp.raise_for_status()
@@ -194,6 +195,25 @@ def write_to_mem0(event: str, run_id: str, agent_id: str, incremental: bool = Fa
 
 
 
+
+DIGEST_EXTRACTION_PROMPT = (
+    "你是一位技术助理，负责从工程师的工作日记中提炼关键技术信息以便未来快速恢复上下文。\n\n"
+    "请从以下对话日记中提炼最重要的技术事实，重点关注：\n"
+    "- 具体的项目名称、集群 ID、服务名、端口号、路径等可识别标识\n"
+    "- 性能数据、测试结果（如吞吐量、延迟、错误率等具体数值）\n"
+    "- 当前工作阶段和进展状态（正在做什么、做到哪一步了）\n"
+    "- 关键技术决策和选型理由\n"
+    "- 遇到的问题和解决方案（特别是踩过的坑）\n"
+    "- 待办事项和下一步计划\n\n"
+    "要求：\n"
+    "- 每条事实自完备、可独立理解，不依赖上下文\n"
+    "- 保留具体数值和标识符，不要用模糊描述替代\n"
+    "- 每条 30-80 字，中文\n"
+    "- 不超过 10 条，只写有实质内容的事实\n"
+    "- 不要写流水账（'执行了 git pull' 这类无意义操作不要写）\n\n"
+    "输出格式（必须严格遵守）：{\"facts\": [\"事实1\", \"事实2\", ...]}\n"
+    "如无实质内容，返回：{\"facts\": []}"
+)
 
 TASK_EXTRACTION_PROMPT = (
     "从以下对话日记中列出agent实际完成的工作任务（最终成果），每行一条，"
