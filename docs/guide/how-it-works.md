@@ -109,9 +109,9 @@ On every heartbeat tick, the agent performs memory maintenance in order:
                                        Step2: 7d STM)
               │             │              │              │
               ▼             ▼              ▼              ▼
-         MEMORY.md     mem0 short-    mem0 short-    mem0 long-
+         MEMORY.md     mem0 short-    mem0 long-     mem0 long-
          (updated)     term memory    term memory    term memory
-                       (today,        (yesterday,    (no run_id)
+                       (today,        (no run_id,    (no run_id)
                         ~20min lag)    next day)
                              │
                         UTC 02:00

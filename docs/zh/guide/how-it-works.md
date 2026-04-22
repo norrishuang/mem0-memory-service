@@ -110,8 +110,8 @@ Agent 读到「🔴 Agent Memory Behavior」规则
                           PROMPT)
               │             │              │              │
               ▼             ▼              ▼              ▼
-          MEMORY.md     mem0 短期记忆  mem0 短期记忆  mem0 长期记忆
-          （已更新）     （今日，       （昨日，        （无 run_id）
+          MEMORY.md     mem0 短期记忆  mem0 长期记忆  mem0 长期记忆
+          （已更新）     （今日，       （无 run_id，   （无 run_id）
                           约 20 分钟    次日生效）
                           延迟）
                              │
