@@ -67,7 +67,7 @@ flowchart TD
     Diary["memory/YYYY-MM-DD.md\n（日记文件）"]
     MemoryMD["MEMORY.md\n（Agent 精选知识库）"]
     Snap(["session_snapshot.py\n（每 5 分钟，仅写日记）"])
-    DigestToday(["auto_digest.py --today\n（每 15 分钟，infer=True，fact extraction）"])
+    DigestToday(["auto_digest.py --today\n（每 15 分钟，infer=True，DIGEST_EXTRACTION_PROMPT）"])
     Sync(["memory_sync.py\n（每天 UTC 01:00，同步 MEMORY.md）"])
     Archive(["auto_dream.py\n(AutoDream，UTC 02:00)"])
 
@@ -114,7 +114,7 @@ flowchart TD
 | 组件 | 职责 |
 |---|---|
 | **session_snapshot.py** | 每 5 分钟运行一次。捕获**所有** Agent 会话（单聊 + 群聊）到日记文件。**不直接写入 mem0**——mem0 的写入完全由 auto_digest 负责。 |
-| **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）加 `infer=True` 写入 mem0——mem0 内部做 fact extraction，提炼为简洁记忆。每批成功后立即持久化 offset，支持断点续传。 |
+| **auto_digest.py --today** | 每 15 分钟运行一次。读取自上次运行以来日记文件中的**新增字节**（通过 `auto_digest_offset.json` 追踪），以**按 `## ` 章节边界对齐的分批**（每批最大约 50KB）配合 `infer=True` 和专属的 `DIGEST_EXTRACTION_PROMPT` 写入 mem0——该 prompt 专为工程师工作日记设计，重点保留技术标识符、性能数据、工作进展、关键决策和踩坑经验。提炼阈值为 2000 字节。每批成功后立即持久化 offset，支持断点续传。 |
 | **memory_sync.py** | 每天 UTC 01:00 运行。将各 Agent 的 `MEMORY.md`（精选知识）直接同步到 mem0 长期记忆。基于 hash 去重，文件未变化时零 LLM 调用。 |
 | **auto_dream.py** / **AutoDream** | 每天 UTC 02:00 运行。**步骤一**：读取昨日完整日记 → `mem0.add(infer=True, 无 run_id)` → 长期记忆。**步骤二**：对每条 7 天前的短期记忆，调用 `mem0.add(infer=True, 无 run_id)`——mem0 LLM 与已有长期记忆比对，返回四种决策之一：`ADD`（新知识，写入）、`UPDATE`（与已有条目合并）、`DELETE`（冗余，跳过写入）、`NONE`（已完全覆盖，跳过写入）。无论何种决策，**原始短期条目处理后始终删除**。 |
 | **mem0 Memory Service** | 核心服务。使用 AWS Bedrock LLM 进行记忆提炼与去重，使用 Bedrock Embedding 进行向量化。 |

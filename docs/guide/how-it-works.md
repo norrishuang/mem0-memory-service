@@ -12,7 +12,7 @@ This page explains the end-to-end memory flow — from a conversation happening 
 | **Semantic retrieval, not keyword search** | Find memories by meaning, not exact phrasing | Vector similarity + time-decay blended ranking (`0.7 × score + 0.3 × recency`) |
 | **Cross-agent knowledge sharing** | Lessons learned by one agent instantly benefit all agents | `category=experience` / `procedural` auto-writes to shared pool; every search includes shared pool |
 | **Write generously, dedup automatically** | Agents don't need to worry about redundancy — mem0 handles it | `infer=True` triggers internal fact extraction; same-day dedup is bounded by `run_id` |
-| **Targeted extraction per category** | Different memory types need different extraction angles | `custom_extraction_prompt` per `/memory/add` call; `auto_digest` auto-runs task-extraction pass on every session block |
+| **Targeted extraction per category** | Different memory types need different extraction angles | `custom_extraction_prompt` per `/memory/add` call; `auto_digest` uses `DIGEST_EXTRACTION_PROMPT` for technical context preservation + `TASK_EXTRACTION_PROMPT` for task extraction on every session block |
 | **Three paths to long-term memory** | Different sources land in long-term at different speeds | Explicit CLI write (immediate) → `memory_sync` (same day) → `auto_dream` (7-day cadence) |
 | **Multi-session, multi-agent continuity** | What happens in a group chat is visible to the direct chat session | `session_snapshot` covers all `agent:{id}:*` sessions; ~20 min propagation lag |
 
@@ -207,7 +207,7 @@ When a session's context window grows too large, OpenClaw compresses (compacts) 
 **Tertiary: Near-real-time cross-session memory sharing**
 Each agent may have multiple concurrent sessions — a direct chat session and one or more group chat sessions. Without a sharing mechanism, what an agent says in a group chat is invisible to its direct chat session (and vice versa).
 
-`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it to mem0 short-term memory with `infer=True` (run_id=today, fact extraction). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
+`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it to mem0 short-term memory with `infer=True` and `DIGEST_EXTRACTION_PROMPT` (run_id=today, technical context preservation). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
 
 Session keys are tagged in metadata (`session_key`), so you can filter by source if needed.
 
@@ -433,7 +433,7 @@ Use the key (e.g. `dev`, `main`, `blog`) as your `--agent` value.
 
 The memory pipeline has two stages inspired by how human memory consolidation works:
 
-- **Auto Digest (The Subconscious)** — runs every 15 minutes during the day, continuously absorbing new diary content into short-term memory via dual-pass fact extraction
+- **Auto Digest (The Subconscious)** — runs every 15 minutes during the day, continuously absorbing new diary content into short-term memory via dedicated `DIGEST_EXTRACTION_PROMPT` (technical context preservation) + `TASK_EXTRACTION_PROMPT` (task extraction)
 - **Auto Dream (Deep Sleep)** — runs once at night (UTC 02:00), reflecting on cross-day patterns, promoting 7-day-old short-term memories into long-term, and pruning redundancy
 
 Neither stage requires human intervention. The agent wakes up the next morning with a richer, more organized memory.

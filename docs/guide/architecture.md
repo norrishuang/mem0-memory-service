@@ -217,7 +217,7 @@ In practice, we observed 1,800 short-term entries consolidating down to ~78 long
 
 **`auto_digest.py --today` (every 15 min, incremental)**
 
-Runs every 15 minutes, reading only new diary content since the last run. Sends **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) to mem0 with `infer=True` — mem0 runs fact extraction to produce concise memories. Offset is saved after each successful batch — if the process is interrupted, the next run picks up where it left off.
+Runs every 15 minutes, reading only new diary content since the last run. Sends **section-aligned batches** (up to ~50KB each, aligned to `## ` diary section boundaries) to mem0 with `infer=True` and a dedicated `DIGEST_EXTRACTION_PROMPT` — a custom prompt that preserves technical identifiers (project names, cluster IDs, service names, port numbers, paths), performance data, work progress, key decisions, and pitfalls. Extraction threshold is 2000 bytes. Offset is saved after each successful batch — if the process is interrupted, the next run picks up where it left off.
 
 This provides **real-time cross-session memory**: conversations from the last ~15 minutes are available for retrieval in other sessions of the same agent.
 

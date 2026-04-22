@@ -105,7 +105,9 @@ Agent 读到「🔴 Agent Memory Behavior」规则
           （agent        auto_digest   auto_dream     memory_sync
            自我提炼）    --today       （Step1:        （同步
                          (infer=True,   昨日日记 +     MEMORY.md）
-                          直接传文本）  Step2: 7天STM）
+                          DIGEST_       Step2: 7天STM）
+                          EXTRACTION_
+                          PROMPT)
               │             │              │              │
               ▼             ▼              ▼              ▼
           MEMORY.md     mem0 短期记忆  mem0 短期记忆  mem0 长期记忆
@@ -154,11 +156,11 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 `auto_digest.py` 只有一种活跃模式：
 
 **`--today` 增量模式（每 15 分钟）**
-基于 offset 记录，每次只读取日记文件自上次运行以来的新增内容。以 `infer=True` 写入 mem0，mem0 内部做 fact extraction，提炼为简洁记忆。新增内容不足 500 字节时跳过，避免无意义的小写入。写入失败时保留 offset，下次从同一断点续传。
+基于 offset 记录，每次只读取日记文件自上次运行以来的新增内容。以 `infer=True` 配合专属的 `DIGEST_EXTRACTION_PROMPT` 写入 mem0——该 prompt 专为工程师工作日记设计，重点保留技术标识符（项目名、集群 ID、服务名、端口号、路径）、性能数据、工作进展、关键决策和踩坑经验。提炼阈值为 2000 字节（从 5000 降低，以捕获较短但有意义的工作片段）。写入失败时保留 offset，下次从同一断点续传。
 
 ```
-每 15 分钟 (--today)：  日记新增内容 → POST 给 mem0（infer=True，fact extraction）
-                       + 任务专项 pass（custom_extraction_prompt → category=task）
+每 15 分钟 (--today)：  日记新增内容 → POST 给 mem0（infer=True，DIGEST_EXTRACTION_PROMPT）
+                       + 任务专项 pass（TASK_EXTRACTION_PROMPT → category=task）
 ```
 
 > **注**：之前的默认全量模式（UTC 01:30，LLM 提取昨日日记 → mem0 短期记忆）已被 `auto_dream.py` Step 1 取代——后者直接写入长期记忆（无 run_id），质量更高。
