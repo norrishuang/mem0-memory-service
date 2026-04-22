@@ -12,8 +12,8 @@ flowchart LR
         P["OpenClaw Plugin"]
     end
     subgraph Batch["Batch (Pipelines)"]
-        D["auto_digest\n(every 15 min)"]
-        DR["auto_dream\n(daily UTC 02:00)"]
+        D["auto_digest\n(daily UTC 01:30)"]
+        DR["auto_dream\n(daily UTC 18:00)"]
     end
 
     Conv["Conversations"] --> P -->|"raw write\n(infer=false)"| Mem0[("mem0\nVector Store")]
@@ -29,8 +29,8 @@ The plugin and the existing pipelines are complementary:
 | **Plugin** (`agent_end`) | Every conversation turn | `infer=false` (raw) | Immediate capture, zero LLM cost |
 | **Plugin** (`before_compaction`) | Before session compaction | `infer=true` | LLM-distilled write before context is lost |
 | **Plugin** (`before_prompt_build`) | Before each response | Search only | Inject relevant memories into prompt |
-| `auto_digest` | Every 15 min (cron) | `infer=true` | Extract facts from diary files |
-| `auto_dream` | Daily UTC 02:00 (cron) | `infer=true` | Consolidate short-term → long-term |
+| `auto_digest` | Daily UTC 01:30 (cron) | `infer=true` | Extract facts from diary files |
+| `auto_dream` | Daily UTC 18:00 (cron) | `infer=true` | Consolidate short-term → long-term |
 
 ### Sequence: Normal Conversation Turn
 
@@ -108,9 +108,10 @@ All configuration is set in `openclaw.plugin.json` or passed via OpenClaw's plug
 | `mem0Url` | string | `http://localhost:8230` | mem0 service endpoint |
 | `userId` | string | `boss` | User ID for mem0 operations |
 | `agentIds` | string[] | `["dev","main","pm","researcher","pjm","prototype"]` | Agent IDs to process (empty = all) |
-| `enableWrite` | boolean | `true` | Enable `agent_end` writes with `infer=true` |
-| `enableRawWrite` | boolean | `false` | Enable `agent_end` writes with `infer=false` (takes effect when `enableWrite=false`) |
-| `enableInject` | boolean | `true` | Enable memory injection via `before_prompt_build` |
+| `enableWrite` | boolean | `false` | Enable `agent_end` writes with `infer=true` |
+| `enableRawWrite` | boolean | `true` | Enable `agent_end` writes with `infer=false` (takes effect when `enableWrite=false`) |
+| `enableInject` | boolean | `false` | Enable memory injection via `before_prompt_build` |
+| `enableCompactionFlush` | boolean | `true` | Enable `before_compaction` flush to mem0 |
 | `minExchangeLength` | number | `100` | Minimum exchange length (chars) to trigger a write |
 | `injectLimit` | number | `5` | Max memories to inject per prompt |
 | `injectMaxChars` | number | `800` | Max total chars for injected memories |
@@ -188,8 +189,8 @@ Real-time path (Plugin):
 
 Batch path (Pipelines):
   Session → session_snapshot (5 min) → diary file
-  Diary   → auto_digest (15 min) → mem0 short-term
-  Nightly → auto_dream (UTC 02:00) → long-term consolidation
+  Diary   → auto_digest (daily UTC 01:30) → mem0 short-term
+  Nightly → auto_dream (UTC 18:00) → long-term consolidation
 ```
 
 - **Plugin** provides real-time capture and retrieval — no delay between conversation and memory availability

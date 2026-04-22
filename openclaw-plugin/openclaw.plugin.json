@@ -5,7 +5,7 @@
   "enabledByDefault": false,
   "configSchema": {
     "type": "object",
-    "additionalProperties": true,
+    "additionalProperties": false,
     "properties": {
       "mem0Url": {
         "type": "string",
@@ -21,11 +21,23 @@
       },
       "enableWrite": {
         "type": "boolean",
+        "default": false
+      },
+      "enableRawWrite": {
+        "type": "boolean",
         "default": true
       },
       "enableInject": {
         "type": "boolean",
+        "default": false
+      },
+      "enableCompactionFlush": {
+        "type": "boolean",
         "default": true
+      },
+      "minExchangeLength": {
+        "type": "number",
+        "default": 100
       },
       "injectLimit": {
         "type": "number",
@@ -38,6 +50,10 @@
       "debounceMs": {
         "type": "number",
         "default": 60000
+      },
+      "injectTimeoutMs": {
+        "type": "number",
+        "default": 3000
       }
     }
   }

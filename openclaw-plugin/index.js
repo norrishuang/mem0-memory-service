@@ -11,9 +11,10 @@ const DEFAULT_CONFIG = {
   mem0Url: "http://localhost:8230",
   userId: "boss",
   agentIds: ["dev", "main", "pm", "researcher", "pjm", "prototype"],
-  enableWrite: true,
-  enableRawWrite: false,
-  enableInject: true,
+  enableWrite: false,
+  enableRawWrite: true,
+  enableInject: false,
+  enableCompactionFlush: true,
   minExchangeLength: 100,
   injectLimit: 5,
   injectMaxChars: 800,
@@ -201,8 +202,10 @@ const plugin = {
           console.error(`[mem0-plugin] agent_end error:`, err.message);
         }
       });
+    }
 
-      // ── 3. before_compaction: flush to mem0 before compaction ──
+    // ── 3. before_compaction: flush to mem0 before compaction ──
+    if (cfg.enableCompactionFlush) {
       api.on("before_compaction", async (event, ctx) => {
         try {
           const agentId = ctx.agentId;

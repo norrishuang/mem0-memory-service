@@ -12,8 +12,8 @@ flowchart LR
         P["OpenClaw 插件"]
     end
     subgraph Batch["批处理（流水线）"]
-        D["auto_digest\n（每小时）"]
-        DR["auto_dream\n（每天 UTC 02:00）"]
+        D["auto_digest\n（每天 UTC 01:30）"]
+        DR["auto_dream\n（每天 UTC 18:00）"]
     end
 
     Conv["对话"] --> P -->|"原文写入\n(infer=false)"| Mem0[("mem0\n向量数据库")]
@@ -29,8 +29,8 @@ flowchart LR
 | **插件**（`agent_end`） | 每次对话 turn 结束 | `infer=false`（原文） | 即时捕获，零 LLM 开销 |
 | **插件**（`before_compaction`） | session 压缩前 | `infer=true` | 压缩前 LLM 提炼，防止上下文丢失 |
 | **插件**（`before_prompt_build`） | 每次生成回复前 | 仅搜索 | 将相关记忆注入 prompt |
-| `auto_digest` | 每小时（cron） | `infer=true` | 从日记文件提取结构化记忆 |
-| `auto_dream` | 每天 UTC 02:00 | `infer=true` | 短期记忆 → 长期记忆精炼 |
+| `auto_digest` | 每天 UTC 01:30（cron） | `infer=true` | 从日记文件提取结构化记忆 |
+| `auto_dream` | 每天 UTC 18:00 | `infer=true` | 短期记忆 → 长期记忆精炼 |
 
 ### 时序图：正常对话 turn
 
@@ -108,9 +108,10 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 | `mem0Url` | string | `http://localhost:8230` | mem0 服务地址 |
 | `userId` | string | `boss` | mem0 用户 ID |
 | `agentIds` | string[] | `["dev","main","pm","researcher","pjm","prototype"]` | 处理的 agent ID 列表（空数组=全部） |
-| `enableWrite` | boolean | `true` | 开启 `agent_end` 写入（infer=true） |
-| `enableRawWrite` | boolean | `false` | 开启 `agent_end` 原文写入（infer=false，enableWrite=false 时生效） |
-| `enableInject` | boolean | `true` | 开启 `before_prompt_build` 记忆注入 |
+| `enableWrite` | boolean | `false` | 开启 `agent_end` 写入（infer=true） |
+| `enableRawWrite` | boolean | `true` | 开启 `agent_end` 原文写入（infer=false，enableWrite=false 时生效） |
+| `enableInject` | boolean | `false` | 开启 `before_prompt_build` 记忆注入 |
+| `enableCompactionFlush` | boolean | `true` | 开启 `before_compaction` 压缩前写入 |
 | `minExchangeLength` | number | `100` | 触发写入的最小对话长度（字符数） |
 | `injectLimit` | number | `5` | 每次注入的最大记忆条数 |
 | `injectMaxChars` | number | `800` | 注入内容的最大字符数 |
@@ -187,8 +188,8 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 
 批处理路径（流水线）：
   session → session_snapshot（5分钟）→ 日记文件
-  日记    → auto_digest（每小时）     → mem0 短期记忆
-  每晚    → auto_dream（UTC 02:00）   → 长期记忆精炼
+  日记    → auto_digest（每天 UTC 01:30）  → mem0 短期记忆
+  每晚    → auto_dream（UTC 18:00）        → 长期记忆精炼
 ```
 
 - **插件**提供实时捕获——对话结束即可被记忆，无延迟
