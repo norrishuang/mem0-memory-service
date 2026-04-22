@@ -1,0 +1,9 @@
+{
+  "name": "openclaw-mem0-plugin",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin for mem0 memory service integration via agent lifecycle hooks",
+  "type": "module",
+  "main": "index.js",
+  "keywords": ["openclaw", "mem0", "memory", "plugin"],
+  "license": "MIT"
+}

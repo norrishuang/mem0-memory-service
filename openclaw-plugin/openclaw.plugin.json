@@ -1,0 +1,44 @@
+{
+  "id": "mem0-memory-plugin",
+  "name": "Mem0 Memory Plugin",
+  "description": "Integrates mem0 memory service with OpenClaw via agent lifecycle hooks for real-time memory write and injection.",
+  "enabledByDefault": false,
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "mem0Url": {
+        "type": "string",
+        "default": "http://localhost:8230"
+      },
+      "userId": {
+        "type": "string",
+        "default": "boss"
+      },
+      "agentIds": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "enableWrite": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableInject": {
+        "type": "boolean",
+        "default": true
+      },
+      "injectLimit": {
+        "type": "number",
+        "default": 5
+      },
+      "injectMaxChars": {
+        "type": "number",
+        "default": 800
+      },
+      "debounceMs": {
+        "type": "number",
+        "default": 60000
+      }
+    }
+  }
+}
