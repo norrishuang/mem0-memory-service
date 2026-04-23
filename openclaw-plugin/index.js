@@ -9,7 +9,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 
 const DEFAULT_CONFIG = {
   mem0Url: "http://localhost:8230",
@@ -126,6 +126,17 @@ function extractTextContent(content) {
 }
 
 /**
+ * Get workspace base path for a given agentId.
+ * Each agent writes to its own workspace: ~/.openclaw/workspace-{agentId}
+ */
+function getWorkspaceBase(cfg, agentId) {
+  const base = cfg.diaryBasePath; // e.g. ~/.openclaw/workspace-dev
+  const openclawBase = join(base, ".."); // ~/.openclaw/
+  if (!agentId) return base;
+  return join(openclawBase, `workspace-${agentId}`);
+}
+
+/**
  * Append a conversation exchange to today's diary file.
  * Format matches session_snapshot.py output for consistency.
  */
@@ -134,7 +145,8 @@ function writeDiaryEntry(cfg, agentId, sessionKey, messages) {
   const today = now.toISOString().slice(0, 10);
   const hhmm = now.toISOString().slice(11, 16);
 
-  const diaryDir = join(cfg.diaryBasePath, "memory");
+  const workspaceBase = getWorkspaceBase(cfg, agentId);
+  const diaryDir = join(workspaceBase, "memory");
   const diaryPath = join(diaryDir, `${today}.md`);
 
   // Extract last user + assistant messages
@@ -167,8 +179,8 @@ function writeDiaryEntry(cfg, agentId, sessionKey, messages) {
 
   // Build entry
   const lines = [`### [${hhmm}] Session ${agentId}:${shortSession}`];
-  if (lastAssistant) lines.push(`- ${agentId}: ${lastAssistant}`);
   if (lastUser) lines.push(`- Boss: ${lastUser}`);
+  if (lastAssistant) lines.push(`- ${agentId}: ${lastAssistant}`);
   lines.push(""); // trailing blank line
 
   appendFileSync(diaryPath, lines.join("\n") + "\n");
@@ -261,24 +273,19 @@ const plugin = {
           if (!event.success) return;
           const agentId = ctx.agentId;
           if (!shouldProcess(agentId, cfg)) return;
-          if (isDebounced(ctx.sessionKey, cfg)) return;
-
-          const exchange = extractLastExchange(event.messages);
-          if (!exchange) return;
-
-          // 过滤太短的内容（纯寒暄/确认）
-          if (exchange.length < cfg.minExchangeLength) return;
 
           if (cfg.enableWrite) {
-            // infer=true，让 mem0 自动提炼
+            // infer=true，让 mem0 自动提炼，保留 debounce
+            if (isDebounced(ctx.sessionKey, cfg)) return;
+            const exchange = extractLastExchange(event.messages);
+            if (!exchange || exchange.length < cfg.minExchangeLength) return;
             await writeToMem0(cfg, agentId, exchange, true);
             markWritten(ctx.sessionKey);
             console.log(`[mem0-plugin] agent_end: infer write agent=${agentId}`);
           } else if (cfg.enableRawWrite) {
-            // 直接写日记文件，替代 session_snapshot 轮询
+            // 写日记文件，不 debounce，每轮都写
             const ok = writeDiaryEntry(cfg, agentId, ctx.sessionKey, event.messages);
             if (ok) {
-              markWritten(ctx.sessionKey);
               console.log(`[mem0-plugin] agent_end: diary write agent=${agentId}`);
             }
           }
