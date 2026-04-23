@@ -351,7 +351,7 @@ Shared knowledge (category=experience from all agents/users) is automatically in
 
 ## Scheduled Distillation
 
-A cron job is configured (every 4 hours) to automatically extract valuable information from recent conversations and write to mem0.
+Diary files are written in real-time by the openclaw-plugin `agent_end` hook after each conversation turn. The `auto_digest` pipeline runs every 15 minutes to extract valuable information from diary files and write to mem0.
 Runs in silent mode without disturbing the user.
 
 ## Other Operations

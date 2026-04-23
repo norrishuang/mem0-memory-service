@@ -1,6 +1,6 @@
 # OpenClaw 插件
 
-mem0 Memory Plugin 通过 Hook 系统接入 OpenClaw 的 agent 生命周期，实现实时记忆写入——无需 cron 任务，无需日记文件。每次有实质内容的对话都会即时写入 mem0，同时在生成回复前将相关记忆注入系统提示。
+mem0 Memory Plugin 通过 Hook 系统接入 OpenClaw 的 agent 生命周期，实现实时日记写入。每次有实质内容的对话都会通过 `agent_end` hook 即时写入日记文件，同时在生成回复前将相关记忆注入系统提示。
 
 ## 架构
 
@@ -12,12 +12,12 @@ flowchart LR
         P["OpenClaw 插件"]
     end
     subgraph Batch["批处理（流水线）"]
-        D["auto_digest\n（每天 UTC 01:30）"]
-        DR["auto_dream\n（每天 UTC 18:00）"]
+        D["auto_digest\n（每 15 分钟）"]
+        DR["auto_dream\n（每天 UTC 02:00）"]
     end
 
-    Conv["对话"] --> P -->|"原文写入\n(infer=false)"| Mem0[("mem0\n向量数据库")]
-    Diary["日记文件"] --> D -->|"infer=true"| Mem0
+    Conv["对话"] --> P -->|"writeDiaryEntry\n（实时）"| Diary["日记文件\n(memory/YYYY-MM-DD.md)"]
+    Diary --> D -->|"infer=true"| Mem0[("mem0\n向量数据库")]
     Mem0 -->|"7天短期记忆"| DR -->|"精炼合并"| Mem0
     Mem0 -->|"搜索"| P -->|"注入系统提示"| Conv
 ```
@@ -26,11 +26,11 @@ flowchart LR
 
 | 组件 | 触发时机 | 写入方式 | 用途 |
 |------|---------|---------|------|
-| **插件**（`agent_end`） | 每次对话 turn 结束 | `infer=false`（原文） | 即时捕获，零 LLM 开销 |
-| **插件**（`before_compaction`） | session 压缩前 | `infer=true` | 压缩前 LLM 提炼，防止上下文丢失 |
+| **插件**（`agent_end`） | 每次对话 turn 结束 | 日记文件（`writeDiaryEntry`） | 实时日记捕获，零 LLM 开销 |
+| **插件**（`before_compaction`） | session 压缩前 | `infer=true` 写入 mem0 | 压缩前 LLM 提炼，防止上下文丢失 |
 | **插件**（`before_prompt_build`） | 每次生成回复前 | 仅搜索 | 将相关记忆注入 prompt |
-| `auto_digest` | 每天 UTC 01:30（cron） | `infer=true` | 从日记文件提取结构化记忆 |
-| `auto_dream` | 每天 UTC 18:00 | `infer=true` | 短期记忆 → 长期记忆精炼 |
+| `auto_digest` | 每 15 分钟（cron） | `infer=true` 写入 mem0 | 从日记文件提取结构化记忆 |
+| `auto_dream` | 每天 UTC 02:00（cron） | `infer=true` 写入 mem0 | 短期记忆 → 长期记忆精炼 |
 
 ### 时序图：正常对话 turn
 
@@ -40,6 +40,7 @@ sequenceDiagram
     participant OC as OpenClaw Agent
     participant P as 插件
     participant M as mem0 服务
+    participant FS as 日记文件
 
     U->>OC: 发送消息
     P->>M: 搜索相关记忆（before_prompt_build）
@@ -47,8 +48,8 @@ sequenceDiagram
     P-->>OC: 注入记忆到系统提示
     OC->>U: 回复
     OC->>P: agent_end 事件
-    P->>M: POST /memory/add（infer=false）
-    Note over P,M: 原文存储，无 LLM 开销
+    P->>FS: writeDiaryEntry → memory/YYYY-MM-DD.md
+    Note over P,FS: 写入日记文件，无 LLM 开销
 ```
 
 ### 时序图：session 压缩时
@@ -71,15 +72,17 @@ sequenceDiagram
 
 ## Hook 说明
 
-### `agent_end` — 写入对话内容
+### `agent_end` — 写入对话到日记
 
-每次 agent turn 成功结束后触发，提取最后一轮 user + assistant 对话写入 mem0。
+每次 agent turn 成功结束后触发，提取最后一轮 user + assistant 对话，通过 `writeDiaryEntry` 写入 agent 的日记文件。
 
 **行为：**
+- 写入路径：`~/.openclaw/workspace-{agentId}/memory/YYYY-MM-DD.md` — 日记按 agentId 路由到各自 workspace
 - 对话内容不足 `minExchangeLength`（默认 100 字）时跳过，过滤寒暄等无效内容
+- 通过 `isNoise` 过滤噪音（问候、琐碎对话）
+- 通过 `cleanContent` 清理内容（移除系统标记等）
 - 每个 session 有 debounce 保护，`debounceMs`（默认 60 秒）内最多写一次
-- `enableRawWrite=true` 时使用 `infer=false`（原文存储，零 LLM 开销）
-- `enableWrite=true` 时使用 `infer=true`（LLM 提取关键事实，质量更高但有开销）
+- workspace 基础路径通过 `getWorkspaceBase` 从 `openclaw.json` 解析
 
 ### `before_compaction` — 压缩前兜底写入
 
@@ -99,6 +102,24 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 - 超过 `injectTimeoutMs`（默认 3 秒）自动跳过，不阻塞回复
 - 以 `## Relevant Memories` 段落形式注入系统提示
 
+## 核心函数
+
+### `writeDiaryEntry(agentId, content)`
+
+将对话内容写入 agent 的每日日记文件。日记路径解析为 `{diaryBasePath}/workspace-{agentId}/memory/YYYY-MM-DD.md`。如果目录不存在会自动创建。以时间戳标题追加内容。
+
+### `cleanContent(text)`
+
+清理对话文本中的系统标记、多余空白和格式噪音，确保日记条目干净可读。
+
+### `isNoise(exchange)`
+
+判断对话是否为噪音（问候、简短确认、琐碎对话），返回 `true` 表示应跳过不写入日记。
+
+### `getWorkspaceBase(agentId)`
+
+从 `openclaw.json` 解析指定 agent 的 workspace 基础路径。返回日记文件应写入的路径（如 `~/.openclaw/workspace-{agentId}`）。如果配置中未找到，回退到 `{diaryBasePath}/workspace-{agentId}`。
+
 ## 配置项
 
 所有配置通过 OpenClaw 的 `plugins.entries` 传入。
@@ -108,8 +129,9 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 | `mem0Url` | string | `http://localhost:8230` | mem0 服务地址 |
 | `userId` | string | `boss` | mem0 用户 ID |
 | `agentIds` | string[] | `["dev","main","pm","researcher","pjm","prototype"]` | 处理的 agent ID 列表（空数组=全部） |
-| `enableWrite` | boolean | `false` | 开启 `agent_end` 写入（infer=true） |
-| `enableRawWrite` | boolean | `true` | 开启 `agent_end` 原文写入（infer=false，enableWrite=false 时生效） |
+| `diaryBasePath` | string | `~/.openclaw` | 日记文件基础路径。日记写入 `{diaryBasePath}/workspace-{agentId}/memory/YYYY-MM-DD.md` |
+| `enableWrite` | boolean | `false` | 开启 `before_compaction` 写入 mem0（infer=true） |
+| `enableRawWrite` | boolean | `true` | 开启 `agent_end` 日记文件写入（写入日记文件，不写入 mem0） |
 | `enableInject` | boolean | `false` | 开启 `before_prompt_build` 记忆注入 |
 | `enableCompactionFlush` | boolean | `true` | 开启 `before_compaction` 压缩前写入 |
 | `minExchangeLength` | number | `100` | 触发写入的最小对话长度（字符数） |
@@ -118,7 +140,9 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 | `debounceMs` | number | `60000` | 每个 session 写入去重窗口（毫秒） |
 | `injectTimeoutMs` | number | `3000` | 记忆搜索超时时间（毫秒） |
 
-> **`enableWrite` 与 `enableRawWrite` 的区别**：`enableWrite=true` 时对话以 `infer=true` 写入，LLM 自动提取关键事实（质量高，有 LLM 开销）。`enableWrite=false` 且 `enableRawWrite=true` 时以原文写入（零 LLM 开销，依赖 `auto_dream` 夜间精炼）。两者互斥，`enableWrite` 优先级更高。
+> **`enableRawWrite`**：开启后，`agent_end` hook 将对话内容写入日记文件（`memory/YYYY-MM-DD.md`），这是主要的日记捕获机制——零 LLM 开销，实时写入。日记文件随后由 `auto_digest`（每 15 分钟）和 `auto_dream`（每晚）处理，提炼到 mem0 向量记忆中。
+>
+> **`enableWrite`**：控制 `before_compaction` 行为。开启后，session 压缩事件触发 `infer=true` 直接写入 mem0——这是上下文丢失前最后的捕获机会。
 
 ## 安装配置
 
@@ -160,7 +184,7 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 
 ## 推荐配置
 
-对大多数用户，建议使用**原文写入模式**（`enableRawWrite=true`，`enableWrite=false`）：
+对大多数用户，建议使用**日记写入模式**（`enableRawWrite=true`）：
 
 ```json
 {
@@ -171,9 +195,10 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 ```
 
 **原因：**
-- `agent_end` 原文写入，零 LLM 开销，对话即时被捕获
+- `agent_end` 将对话写入日记文件，零 LLM 开销，每轮对话结束即时捕获
 - `before_compaction` 始终使用 `infer=true`，关键上下文在压缩前得到提炼
-- `auto_dream` 每晚将原文记忆整合为高质量长期知识
+- `auto_digest`（每 15 分钟）读取新日记内容写入 mem0 短期记忆
+- `auto_dream` 每晚将短期记忆整合为高质量长期知识
 - 注入功能（`enableInject`）可按需开启，频率高时建议关闭
 
 ## 与现有流水线的关系
@@ -182,16 +207,15 @@ OpenClaw 即将压缩 session 上下文时触发，将当前对话以 `infer=tru
 
 ```
 实时路径（插件）：
-  对话  → agent_end          → mem0（原文，即时）
+  对话  → agent_end          → 日记文件（实时，每轮对话）
   压缩  → before_compaction  → mem0（LLM提炼，兜底）
   提示  → before_prompt_build → 搜索 → 注入
 
 批处理路径（流水线）：
-  session → session_snapshot（每15分钟）→ 日记文件
-  日记    → auto_digest（每天 UTC 01:30）  → mem0 短期记忆
-  每晚    → auto_dream（UTC 18:00）        → 长期记忆精炼
+  日记    → auto_digest --today（每15分钟）→ mem0 短期记忆
+  每晚    → auto_dream（UTC 02:00）        → 长期记忆精炼
 ```
 
-- **插件**提供实时捕获——对话结束即可被记忆，无延迟
-- **流水线**提供结构化日记管理和夜间精炼——长期记忆质量更高
-- 两条路径写入同一个 mem0 实例，mem0 内置去重机制防止重复
+- **插件**提供实时日记捕获——对话结束即写入日记文件，无延迟
+- **流水线**提供日记到 mem0 的结构化提炼和夜间精炼——长期记忆质量更高
+- 两条路径共享同一套日记文件和 mem0 实例——`auto_digest` 读取插件写入的日记文件

@@ -8,13 +8,13 @@ This page explains the end-to-end memory flow — from a conversation happening 
 |---|---|---|
 | **Zero blind spots across session resets** | No conversation is lost when a session ends, even mid-day | Today's diary + yesterday's diary + mem0 combined cover every time window |
 | **Two-tier memory: short-term → long-term** | Recent content stays isolated; only proven facts graduate to long-term | `auto_digest` writes with `run_id=today` (bounded dedup); `auto_dream` promotes at UTC 02:00 (global dedup) |
-| **Dual capture paths** | Agent-driven entries are high quality; automation is the safety net | Agent writes diary in real-time; `session_snapshot` captures every 5 min as fallback |
+| **Real-time diary capture** | Every conversation turn is captured immediately | openclaw-plugin `agent_end` hook writes diary in real-time; no polling delay |
 | **Semantic retrieval, not keyword search** | Find memories by meaning, not exact phrasing | Vector similarity + time-decay blended ranking (`0.7 × score + 0.3 × recency`) |
 | **Cross-agent knowledge sharing** | Lessons learned by one agent instantly benefit all agents | `category=experience` / `procedural` auto-writes to shared pool; every search includes shared pool |
 | **Write generously, dedup automatically** | Agents don't need to worry about redundancy — mem0 handles it | `infer=True` triggers internal fact extraction; same-day dedup is bounded by `run_id` |
 | **Targeted extraction per category** | Different memory types need different extraction angles | `custom_extraction_prompt` per `/memory/add` call; `auto_digest` uses `DIGEST_EXTRACTION_PROMPT` for technical context preservation + `TASK_EXTRACTION_PROMPT` for task extraction on every session block |
 | **Three paths to long-term memory** | Different sources land in long-term at different speeds | Explicit CLI write (immediate) → `memory_sync` (same day) → `auto_dream` (7-day cadence) |
-| **Multi-session, multi-agent continuity** | What happens in a group chat is visible to the direct chat session | `session_snapshot` covers all `agent:{id}:*` sessions; ~20 min propagation lag |
+| **Multi-session, multi-agent continuity** | What happens in a group chat is visible to the direct chat session | openclaw-plugin covers all agent sessions; ~15 min propagation lag via auto_digest |
 
 ## The Core Problem: Sessions Are Stateless
 
@@ -89,9 +89,9 @@ On every heartbeat tick, the agent performs memory maintenance in order:
 └────────────────┬──────────────────────┬─────────────────────┘
                  │                      │
                  ▼                      ▼
-    Agent writes diary           Agent writes diary
-    (SKILL.md guided,            (session_snapshot fallback,
-     high quality)                every 5 min, auto-captured)
+    Agent writes diary           openclaw-plugin
+    (SKILL.md guided,            agent_end hook
+     high quality)               (real-time, every turn)
                  │                      │
                  └──────────┬───────────┘
                             ▼
@@ -112,7 +112,7 @@ On every heartbeat tick, the agent performs memory maintenance in order:
          MEMORY.md     mem0 short-    mem0 long-     mem0 long-
          (updated)     term memory    term memory    term memory
                        (today,        (no run_id,    (no run_id)
-                        ~20min lag)    next day)
+                        ~15min lag)    next day)
                              │
                         UTC 02:00
                         AutoDream
@@ -127,7 +127,7 @@ On every heartbeat tick, the agent performs memory maintenance in order:
 
 ## Deployment: Docker vs. systemd
 
-The memory pipeline scripts (`session_snapshot`, `auto_digest`, `auto_dream`, `memory_sync`) run identically regardless of deployment method. Only the process manager differs:
+The memory pipeline scripts (`auto_digest`, `auto_dream`, `memory_sync`) run identically regardless of deployment method. Only the process manager differs:
 
 | | Docker (recommended) | systemd |
 |---|---|---|
@@ -143,12 +143,12 @@ For deployment details, see [Docker Setup](../deploy/docker) or [systemd Setup](
 
 | Time (UTC) | Script | What it does |
 |-----------|--------|--------------|
-| Every 5 min | `pipelines/session_snapshot.py` | Capture session conversations → diary file |
+| Real-time | openclaw-plugin `agent_end` hook | Write conversation to diary file after each agent turn |
 | Every 15 min | `pipelines/auto_digest.py --today` | Incremental: read new diary content → mem0 short-term (infer=True, fact extraction) + task-extraction pass (custom_extraction_prompt → category=task) |
 | 01:00 | `pipelines/memory_sync.py` | Sync `MEMORY.md` → mem0 long-term (hash dedup) |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**: Step 1: yesterday diary → mem0 long-term (infer=True); Step 2: 7-day-old short-term → re-add to long-term (infer=True) then delete |
 
-> In Docker deployments, these scripts run as cron jobs inside the `mem0-pipeline` container. In systemd deployments, they run as user timers. The schedule and behavior are identical regardless of deployment method.
+> In Docker deployments, the pipeline scripts run as cron jobs inside the `mem0-pipeline` container. In systemd deployments, they run as user timers. Diary files are written in real-time by the openclaw-plugin `agent_end` hook (outside Docker). The schedule and behavior of batch pipelines are identical regardless of deployment method.
 
 ## auto_digest Mode
 
@@ -194,37 +194,31 @@ Pass ② extracts only finalized work outcomes in `[type] description` format (e
 
 > **Note**: The previous default full mode (UTC 01:30, LLM-extract yesterday's diary → mem0 short-term) has been superseded by `auto_dream.py` Step 1, which writes directly to long-term memory (no run_id) with higher quality.
 
-## Two Roles of session_snapshot
+## Real-Time Diary Capture via openclaw-plugin
 
-`session_snapshot.py` serves two purposes:
+The openclaw-plugin's `agent_end` hook replaces the previous `session_snapshot.py` polling approach. It fires after each agent turn completes, writing the conversation to the agent's diary file in real-time.
 
 **Primary: Cross-Session Memory Bridge**
-Agents reset daily. Without snapshot, conversations would be lost between sessions. Snapshot captures every conversation into diary files, which are then distilled into mem0 by `auto_digest.py`. When a new session starts, the agent retrieves relevant memories from mem0 — restoring context seamlessly.
+Agents reset daily. Without diary capture, conversations would be lost between sessions. The `agent_end` hook captures every conversation turn into diary files, which are then distilled into mem0 by `auto_digest.py`. When a new session starts, the agent retrieves relevant memories from mem0 — restoring context seamlessly.
 
 **Secondary: Compaction Guard**
-When a session's context window grows too large, OpenClaw compresses (compacts) the history. The most recent few minutes of conversation might not survive compaction. Snapshot running every 5 minutes ensures that content is captured to disk before compaction can lose it.
+When a session's context window grows too large, OpenClaw compresses (compacts) the history. The `agent_end` hook ensures content is captured to disk after every turn — before compaction can lose it. This is strictly better than the old 5-minute polling approach, which could miss up to 5 minutes of conversation.
 
 **Tertiary: Near-real-time cross-session memory sharing**
-Each agent may have multiple concurrent sessions — a direct chat session and one or more group chat sessions. Without a sharing mechanism, what an agent says in a group chat is invisible to its direct chat session (and vice versa).
+Each agent may have multiple concurrent sessions. The `agent_end` hook writes new conversation to the diary file after every turn. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it to mem0 short-term memory. Any other session of the same agent can search mem0 and retrieve that content within ~15 minutes — no session restart required.
 
-`session_snapshot.py` writes new conversation to the diary file every 5 minutes. `auto_digest.py --today` then picks up new diary content every 15 minutes and writes it to mem0 short-term memory with `infer=True` and `DIGEST_EXTRACTION_PROMPT` (run_id=today, technical context preservation). Any other session of the same agent can search mem0 and retrieve that content within ~20 minutes (5 min snapshot + 15 min digest) — no session restart required.
+## Writing Diary Files
 
-Session keys are tagged in metadata (`session_key`), so you can filter by source if needed.
-
-## Two Paths for Writing Diary Files
-
-Because not all agents actively maintain diary files, there are two parallel capture paths:
+Diary files are written through two complementary paths:
 
 | Path | Who writes | Quality | When |
 |------|------------|---------|------|
 | **Agent-driven** | Agent itself (SKILL.md guided) | High — curated, meaningful entries | Real-time, during conversation |
-| **Snapshot-driven** | `session_snapshot.py` (automated) | Lower — raw conversation fragments | Every 5 min, regardless of content |
+| **Plugin-driven** | openclaw-plugin `agent_end` hook | Good — full conversation capture | Real-time, after each agent turn |
 
-Both paths write to the same `memory/YYYY-MM-DD.md` file. Content-level deduplication ensures no entry is written twice.
+Both paths write to the same `memory/YYYY-MM-DD.md` file in the agent's workspace (`~/.openclaw/workspace-{agentId}/memory/`). The plugin filters noise (greetings, short exchanges) via `isNoise` and cleans content via `cleanContent` before writing.
 
-**The agent-driven path produces better memories.** Automation is the safety net.
-
-> **Group chat sessions are now included.** Previously, snapshot only captured the `main` (direct chat) session. Now all sessions matching `agent:{id}:*` are processed — group chat conversations are written to the same diary file and mem0, enabling cross-context memory sharing within the same agent.
+**The agent-driven path produces better memories.** The plugin provides comprehensive automated capture as a complement.
 
 ## Three Paths to Long-Term Memory
 
@@ -355,7 +349,7 @@ When a new session starts, the skill instructs the agent to read **both diary fi
 
 ```
 Session start
-  ├── Read memory/today.md      ← today's raw diary (real-time, not yet in mem0)
+  ├── Read memory/today.md      ← today's raw diary (real-time, written by openclaw-plugin)
   ├── Read memory/yesterday.md  ← yesterday's raw diary (coverage gap buffer)
   └── Search mem0 --combined    ← distilled memories (long-term + recent short-term)
 ```
@@ -433,7 +427,7 @@ Use the key (e.g. `dev`, `main`, `blog`) as your `--agent` value.
 
 The memory pipeline has two stages inspired by how human memory consolidation works:
 
-- **Auto Digest (The Subconscious)** — runs every 15 minutes during the day, continuously absorbing new diary content into short-term memory via dedicated `DIGEST_EXTRACTION_PROMPT` (technical context preservation) + `TASK_EXTRACTION_PROMPT` (task extraction)
+- **Auto Digest (The Subconscious)** — runs every 15 minutes during the day, continuously absorbing new diary content (written in real-time by the openclaw-plugin `agent_end` hook) into short-term memory via dedicated `DIGEST_EXTRACTION_PROMPT` (technical context preservation) + `TASK_EXTRACTION_PROMPT` (task extraction)
 - **Auto Dream (Deep Sleep)** — runs once at night (UTC 02:00), reflecting on cross-day patterns, promoting 7-day-old short-term memories into long-term, and pruning redundancy
 
 Neither stage requires human intervention. The agent wakes up the next morning with a richer, more organized memory.

@@ -10,17 +10,17 @@ Agents can automatically store and retrieve memories through conversations, with
 
 ## Features
 
-- **Cross-Session Persistent Memory** — OpenClaw starts every conversation as an isolated session with no built-in memory. This service bridges sessions: every 5 minutes the session snapshot is captured to a diary file, an LLM distills the previous day's complete diary into the vector store each morning, and when a new session starts the Agent automatically retrieves relevant memories — so context is never lost between conversations.
+- **Cross-Session Persistent Memory** — OpenClaw starts every conversation as an isolated session with no built-in memory. This service bridges sessions: every agent turn the conversation is written to a diary file in real-time via the openclaw-plugin `agent_end` hook, an incremental digest distills diary content into the vector store every 15 minutes, and when a new session starts the Agent automatically retrieves relevant memories — so context is never lost between conversations.
 
 - **Multi-Agent Isolated Memory** — Supports multiple Agents running in parallel (agent1 / agent2 / agent3, etc.), each with a fully isolated memory space. Agents are auto-discovered from `openclaw.json` — no manual registration required. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base that benefits the whole team.
 
-- **Short-Term + Long-Term Tiered Storage** — Conversations are captured as diary files and distilled into short-term memory every 15 minutes via `auto_digest --today`. Agent-curated `MEMORY.md` files are synced directly to long-term memory. Nightly `auto_dream` consolidates short-term into long-term via mem0's native inference. The pipeline: live session → diary snapshot → incremental digest → nightly dream → vector memory.
+- **Short-Term + Long-Term Tiered Storage** — Conversations are captured as diary files in real-time via the openclaw-plugin `agent_end` hook and distilled into short-term memory every 15 minutes via `auto_digest --today`. Agent-curated `MEMORY.md` files are synced directly to long-term memory. Nightly `auto_dream` consolidates short-term into long-term via mem0's native inference. The pipeline: live conversation → real-time diary → incremental digest → nightly dream → vector memory.
 
-- **Cost-Optimized Operations** — Daily digest (once per day) vs. the previous incremental approach (every 15 minutes) reduces LLM calls by ~96% while improving memory quality. `MEMORY.md` sync uses hash-based dedup — zero LLM cost if content hasn't changed.
+- **Cost-Optimized Operations** — Incremental digest (every 15 minutes) with `infer=False` stores diary text directly — zero LLM cost for short-term memory writes. Nightly `auto_dream` uses `infer=True` for high-quality long-term consolidation. `MEMORY.md` sync uses hash-based dedup — zero LLM cost if content hasn't changed.
 
 - **Cost-Optimized Vector Storage (S3 Vectors)** — Supports Amazon S3 Vectors as a vector backend, offering dramatically lower cost than self-managed OpenSearch clusters with pay-per-use pricing. OpenSearch is also supported for existing-cluster scenarios.
 
-- **Fully Automated Operations** — Docker pipeline container (or systemd timers) handles the entire lifecycle: session snapshots every 5 minutes, MEMORY.md sync at UTC 01:00, incremental digest every 15 minutes, nightly dream consolidation at UTC 02:00. Zero manual intervention; services auto-recover on restart.
+- **Fully Automated Operations** — Docker pipeline container (or systemd timers) handles the entire lifecycle: real-time diary capture via openclaw-plugin `agent_end` hook, MEMORY.md sync at UTC 01:00, incremental digest every 15 minutes, nightly dream consolidation at UTC 02:00. Zero manual intervention; services auto-recover on restart.
 
 ## Design Philosophy
 
@@ -156,7 +156,7 @@ docker compose up -d
 
 Or use the interactive installer: `./tools/install.sh` (checks Docker, guides you through `.env` config, starts containers, verifies health).
 
-All automation pipelines (session snapshot, digest, memory sync, dream) run inside the Docker pipeline container — no separate timer setup needed.
+All automation pipelines (digest, memory sync, dream) run inside the Docker pipeline container — no separate timer setup needed.
 
 ### Method 2: systemd (Advanced)
 
@@ -279,50 +279,6 @@ python3 cli.py list --user boss --agent agent1 | grep short_term
 - **`auto_digest.py`**: Main script
 - **`.digest_state.json`**: ~~State file, tracks processed position for each diary file~~ (removed — no longer used)
 - **`auto_digest.log`**: Runtime log, append mode (git ignored)
-
-### Real-Time Session Snapshot
-
-The `session_snapshot.py` script automatically saves conversations from the current active session to diary files every 5 minutes, solving the problem of recent conversation loss due to session compression.
-
-#### How It Works
-
-1. **Read session files**: Reads the current active session from OpenClaw's session store. Agent workspace paths are resolved from `openclaw.json`, supporting non-standard workspace locations (e.g. `main` agent)
-2. **Extract messages**: Parses JSONL format, extracts user and AI conversation messages
-3. **Content-based deduplication**: Each message line is compared against the full diary file content — only lines not yet recorded are written. The same message is never written twice regardless of how many times the snapshot timer fires.
-4. **Format organization**: Human messages labeled as Boss, AI messages labeled as the agent name
-
-#### Configure Scheduled Task (systemd timer, recommended)
-
-```bash
-# Copy systemd units to user directory
-mkdir -p ~/.config/systemd/user/
-cp systemd/mem0-snapshot.service ~/.config/systemd/user/
-cp systemd/mem0-snapshot.timer ~/.config/systemd/user/
-
-# Enable timer
-systemctl --user daemon-reload
-systemctl --user enable --now mem0-snapshot.timer
-```
-
-#### Manual Run and Testing
-
-```bash
-python3 session_snapshot.py
-```
-
-#### Why Is This Needed?
-
-Session snapshots serve two purposes:
-
-- **Compaction safety**: When a session's context grows too large, OpenClaw compresses (compacts) the history into a summary. Fine-grained details before compaction may be lost. Saving every 5 minutes ensures at most 5 minutes of conversation is unrecorded before compaction.
-
-- **Cross-session memory** (the bigger value): OpenClaw resets the active session daily (default 4:00 AM) or after an idle timeout, starting a fresh context window. Without snapshots, all conversation history would be gone. With snapshots → digest → mem0, when a new session starts the Agent automatically retrieves relevant memories via SKILL.md — so context is seamlessly restored across sessions.
-
-#### File Descriptions
-
-- **`session_snapshot.py`**: Main script
-- **`systemd/mem0-snapshot.service`**: systemd service unit
-- **`systemd/mem0-snapshot.timer`**: systemd timer unit (every 5 minutes)
 
 ### Custom Configuration
 
@@ -603,7 +559,6 @@ mem0-memory-service/
 ├── pipelines/
 │   ├── auto_digest.py      # Auto-extract short-term memories from diary (every 15 min)
 │   ├── auto_dream.py       # Nightly memory consolidation: diary→long-term (daily UTC 02:00)
-│   ├── session_snapshot.py # Real-time session conversation saving (every 5 min)
 │   ├── memory_sync.py      # Memory sync pipeline
 │   └── audit_shipper.py    # Audit log shipper
 ├── systemd/
