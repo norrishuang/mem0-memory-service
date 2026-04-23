@@ -136,6 +136,44 @@ function getWorkspaceBase(cfg, agentId) {
   return join(openclawBase, `workspace-${agentId}`);
 }
 
+function isNoise(text) {
+  if (!text || text.trim().length < 15) return true;
+  const lower = text.toLowerCase();
+  if (lower.includes('heartbeat') && !text.includes('HEARTBEAT.md')) return true;
+  if (text.startsWith('$ ') || text.startsWith('> ')) return true;
+  if (text.trim() === 'NO_REPLY') return true;
+  const fillerRe = /^(好的|收到|明白了?|了解|OK|Done|Sure|Got it|Yes|No|嗯|对|是的)[.。]?$/i;
+  if (fillerRe.test(text.trim())) return true;
+  return false;
+}
+
+function cleanContent(text) {
+  if (!text || !text.trim()) return '';
+  text = text.replace(/\[message_id=om_[a-f0-9]+\]\s*/g, '');
+  text = text.replace(
+    /(?:Conversation info|Sender|Inbound Context|Replied message)\s*\(.*?\):\s*```json[\s\S]*?```/g,
+    ''
+  );
+  text = text.replace(/^Runtime:\s*agent=.*$/mg, '');
+  text = text.replace(/^## \/home\/.*?\.md\b[\s\S]*?(?=^## |\z)/mg, '');
+  text = text.replace(
+    /^##\s+(?:Group Chat Context|Inbound Context \(trusted metadata\)|Dynamic Project Context|Silent Replies|Authorized Senders)[\s\S]*?(?=^## |\z)/mg,
+    ''
+  );
+  text = text.replace(
+    /```(?:json)?\s*\n(?:\s*[{\["'].*\n){3,}[\s\S]*?```/g,
+    '[...output omitted...]'
+  );
+  text = text.replace(
+    /```(?:bash|sh|shell|console|text)?\s*\n(?:.*\n){5,}?```/g,
+    '[...output omitted...]'
+  );
+  text = text.replace(/\n{3,}/g, '\n\n');
+  text = text.replace(/[ \t]+/g, ' ');
+  text = text.trim();
+  return text;
+}
+
 /**
  * Append a conversation exchange to today's diary file.
  * Format matches session_snapshot.py output for consistency.
@@ -156,12 +194,25 @@ function writeDiaryEntry(cfg, agentId, sessionKey, messages) {
     const msg = messages[i];
     if (!msg || !msg.role) continue;
     if (!lastAssistant && msg.role === "assistant") {
-      lastAssistant = extractTextContent(msg.content).slice(0, 500);
+      lastAssistant = extractTextContent(msg.content);
     } else if (lastAssistant && !lastUser && msg.role === "user") {
-      lastUser = extractTextContent(msg.content).slice(0, 500);
+      lastUser = extractTextContent(msg.content);
       break;
     }
   }
+
+  // Clean content and filter noise before truncation
+  if (lastAssistant) {
+    lastAssistant = cleanContent(lastAssistant);
+    if (isNoise(lastAssistant)) lastAssistant = null;
+    else lastAssistant = lastAssistant.slice(0, 500);
+  }
+  if (lastUser) {
+    lastUser = cleanContent(lastUser);
+    if (isNoise(lastUser)) lastUser = null;
+    else lastUser = lastUser.slice(0, 500);
+  }
+
   if (!lastAssistant && !lastUser) return false;
 
   // Short session name: last segment of colon-separated key, max 20 chars
