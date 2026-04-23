@@ -2,17 +2,21 @@
  * OpenClaw mem0 Memory Plugin
  *
  * Hooks into OpenClaw's agent lifecycle to:
- * - Write conversation turns to mem0 (agent_end hook)
+ * - Write conversation turns to diary file (agent_end hook, enableRawWrite)
+ * - Write conversation turns to mem0 with infer (agent_end hook, enableWrite)
  * - Inject relevant memories into system prompt (before_prompt_build hook)
  * - Flush conversation to mem0 before compaction (before_compaction hook)
  */
+
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
+import { join, dirname } from "path";
 
 const DEFAULT_CONFIG = {
   mem0Url: "http://localhost:8230",
   userId: "boss",
   agentIds: ["dev", "main", "pm", "researcher", "pjm", "prototype"],
   enableWrite: false,
-  enableRawWrite: true,
+  enableRawWrite: true, // write diary file (replaces raw mem0 write)
   enableInject: false,
   enableCompactionFlush: true,
   minExchangeLength: 100,
@@ -21,6 +25,9 @@ const DEFAULT_CONFIG = {
   debounceMs: 60000, // 1 minute debounce per sessionKey
   injectTimeoutMs: 3000,
   compactionMaxChars: 8000, // max chars to flush before compaction
+  diaryBasePath:
+    process.env.OPENCLAW_BASE ||
+    join(process.env.HOME || "/root", ".openclaw", "workspace-dev"),
 };
 
 // Debounce map: sessionKey -> last write timestamp
@@ -116,6 +123,56 @@ function extractTextContent(content) {
       .slice(0, 2000);
   }
   return String(content).slice(0, 2000);
+}
+
+/**
+ * Append a conversation exchange to today's diary file.
+ * Format matches session_snapshot.py output for consistency.
+ */
+function writeDiaryEntry(cfg, agentId, sessionKey, messages) {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const hhmm = now.toISOString().slice(11, 16);
+
+  const diaryDir = join(cfg.diaryBasePath, "memory");
+  const diaryPath = join(diaryDir, `${today}.md`);
+
+  // Extract last user + assistant messages
+  let lastAssistant = null;
+  let lastUser = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!msg || !msg.role) continue;
+    if (!lastAssistant && msg.role === "assistant") {
+      lastAssistant = extractTextContent(msg.content).slice(0, 500);
+    } else if (lastAssistant && !lastUser && msg.role === "user") {
+      lastUser = extractTextContent(msg.content).slice(0, 500);
+      break;
+    }
+  }
+  if (!lastAssistant && !lastUser) return false;
+
+  // Short session name: last segment of colon-separated key, max 20 chars
+  const shortSession = (sessionKey || "unknown").split(":").pop().slice(0, 20);
+
+  // Ensure directory exists
+  if (!existsSync(diaryDir)) {
+    mkdirSync(diaryDir, { recursive: true });
+  }
+
+  // Create file header if new
+  if (!existsSync(diaryPath)) {
+    writeFileSync(diaryPath, `# ${today} - Dev Agent 日记\n\n## Session 记录\n\n`);
+  }
+
+  // Build entry
+  const lines = [`### [${hhmm}] Session ${agentId}:${shortSession}`];
+  if (lastAssistant) lines.push(`- ${agentId}: ${lastAssistant}`);
+  if (lastUser) lines.push(`- Boss: ${lastUser}`);
+  lines.push(""); // trailing blank line
+
+  appendFileSync(diaryPath, lines.join("\n") + "\n");
+  return true;
 }
 
 async function writeToMem0(cfg, agentId, text, infer = true, timeoutMs = 5000) {
@@ -218,10 +275,12 @@ const plugin = {
             markWritten(ctx.sessionKey);
             console.log(`[mem0-plugin] agent_end: infer write agent=${agentId}`);
           } else if (cfg.enableRawWrite) {
-            // infer=false，原文存入
-            await writeToMem0(cfg, agentId, exchange, false);
-            markWritten(ctx.sessionKey);
-            console.log(`[mem0-plugin] agent_end: raw write agent=${agentId}`);
+            // 直接写日记文件，替代 session_snapshot 轮询
+            const ok = writeDiaryEntry(cfg, agentId, ctx.sessionKey, event.messages);
+            if (ok) {
+              markWritten(ctx.sessionKey);
+              console.log(`[mem0-plugin] agent_end: diary write agent=${agentId}`);
+            }
           }
         } catch (err) {
           console.error(`[mem0-plugin] agent_end error:`, err.message);
