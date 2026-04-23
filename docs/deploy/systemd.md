@@ -13,18 +13,16 @@ sudo systemctl enable --now mem0-memory
 
 ## Scheduled Tasks
 
-### Session Snapshot (every 5 minutes)
+### Diary Capture (Real-time via openclaw-plugin)
 
-Saves current active session conversations to diary files, preventing data loss from session compression.
+Diary files are written in real-time by the openclaw-plugin `agent_end` hook — no separate timer or polling process is needed. The plugin fires after each agent turn and writes the conversation to the agent's diary file.
 
-```bash
-mkdir -p ~/.config/systemd/user/
-cp systemd/mem0-snapshot.service ~/.config/systemd/user/
-cp systemd/mem0-snapshot.timer ~/.config/systemd/user/
-
-systemctl --user daemon-reload
-systemctl --user enable --now mem0-snapshot.timer
-```
+> **Note**: The previous `session_snapshot.py` (every 5 minutes) and its `mem0-snapshot.timer` have been retired. If you have them installed, you can safely disable and remove them:
+> ```bash
+> systemctl --user disable --now mem0-snapshot.timer
+> rm ~/.config/systemd/user/mem0-snapshot.{service,timer}
+> systemctl --user daemon-reload
+> ```
 
 ### Auto Digest (every 15 minutes)
 
@@ -53,15 +51,15 @@ sudo systemctl enable --now mem0-dream.timer
 
 ```bash
 # Check timer status
-systemctl --user list-timers mem0-snapshot.timer
+systemctl --user list-timers mem0-digest.timer
 sudo systemctl list-timers mem0-dream.timer
 
 # Manually trigger
-systemctl --user start mem0-snapshot.service
+systemctl --user start mem0-digest.service
 sudo systemctl start mem0-dream.service
 
 # View logs
-journalctl --user -u mem0-snapshot.service -f
+journalctl --user -u mem0-digest.service -f
 journalctl -u mem0-dream.service -f
 ```
 
@@ -69,6 +67,6 @@ journalctl -u mem0-dream.service -f
 
 | Task | Frequency | Method | Purpose |
 |------|-----------|--------|---------|
-| `pipelines/session_snapshot.py` | Every 5 min | systemd user timer | Save session conversations to diary |
+| openclaw-plugin `agent_end` hook | Real-time | Plugin (runs in OpenClaw) | Write conversation to diary after each agent turn |
 | `pipelines/auto_digest.py` | Every 15 min | cron | Extract short-term memories from diary |
 | `pipelines/auto_dream.py` | Daily 02:00 UTC | systemd system timer | **AutoDream**: Diary→long-term + short-term cleanup via mem0 native inference |

@@ -25,7 +25,7 @@ features:
     details: "Supports AWS OpenSearch (default) and AWS S3 Vectors as the vector backend — switch with a single environment variable. LLM inference and embeddings run on AWS Bedrock, keeping everything within your AWS account."
   - icon: 🌊
     title: MemoryStream
-    details: "Conversations flow into mem0 continuously — snapshotted every 5 min, digested every 15 min. No context is lost between sessions."
+    details: "Conversations flow into mem0 continuously — captured in real-time by the openclaw-plugin, digested every 15 min. No context is lost between sessions."
   - icon: 🤖
     title: Multi-Agent Support
     details: Isolated memory spaces per agent, with cross-agent search capability. Memories tagged as `experience` are automatically shared across all agents — building a collective knowledge base.

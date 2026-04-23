@@ -3,12 +3,14 @@
 > 记录时间：2026-03-28
 > 作者：norrishuang + Dev Agent
 
-本页记录 `session_snapshot → mem0` 这条记忆沉淀管道从最初设计到今日架构的完整演化过程，
+本页记录记忆沉淀管道从最初设计到今日架构的完整演化过程（`session_snapshot` 已停用，现由 openclaw-plugin `agent_end` hook 取代），
 梳理每次变更背后的动机、发现的问题、以及最终取舍。
 
 ---
 
-## 阶段一：最初方案（快照直接写 mem0）
+## 阶段一：最初方案（快照直接写 mem0）——已废弃
+
+> **注**：`session_snapshot.py` 已停用，现由 openclaw-plugin `agent_end` hook 实时写入日记文件取代。本节保留作为历史记录。
 
 ### 做了什么
 
@@ -22,17 +24,17 @@ session → [snapshot 5min] → diary file
 
 ### 发现的问题
 
-1. **线程爆炸**：session_snapshot 是单进程处理多个 Agent session，每次直接 POST mem0 都要等 Bedrock LLM（fact extraction 约 3–10 秒）。当 session 数量多时，并发等待叠加，导致线程数量快速膨胀，进程占用暴涨。
+1. **线程爆炸**：session_snapshot 是单进程处理多个 Agent session，每次直接 POST mem0 都要等 Bedrock LLM（fact extraction 约 3–10 秒）。当 session 数量多时，并发等待叠加，导致线程数量快速膨胀，进程占用暴涨。（此问题已随 session_snapshot 停用而消除）
 2. **写入噪音大**：5 分钟内的碎片对话（几句话）直接喂给 mem0，LLM 提炼出的"记忆"质量差，大量无用短期记忆堆积在向量库中。
 3. **职责耦合**：snapshot 同时承担"写日记"和"写记忆"两件事，任何一个失败都会相互影响。
 
 ### 修复（commit `a841494`）
 
-从 session_snapshot 中移除 mem0 写入逻辑，**快照只写日记文件**，mem0 写入完全交给 auto_digest。
+从 session_snapshot 中移除 mem0 写入逻辑，**快照只写日记文件**，mem0 写入完全交给 auto_digest。（后续 session_snapshot 本身也被 openclaw-plugin `agent_end` hook 取代。）
 
 ---
 
-## 阶段二：更激进的实时沉淀方案（两层管道）
+## 阶段二：更激进的实时沉淀方案（两层管道）——已废弃
 
 ### 做了什么
 
@@ -74,7 +76,9 @@ session → [snapshot 5min]  → diary
 
 ---
 
-## 阶段三：回归方案 + 精准修复（当前）
+## 阶段三：回归方案 + 精准修复——已演化
+
+> **注**：此阶段的 session_snapshot 修复仍有参考价值，但 session_snapshot 本身已被 openclaw-plugin `agent_end` hook 取代。当前架构中日记文件由 plugin 实时写入，不再需要轮询。
 
 ### 核心决策：退回到更简单的架构，精准修复已知 Bug
 
@@ -133,10 +137,9 @@ while len(content.encode()) > MAX_DIARY_BYTES:
 ### 当前架构
 
 ```
-session → [snapshot 5min]         → diary（hash 去重，200KB 上限）
-          [digest --today 15min]  → mem0 STM（50KB 分批，近实时）
-          [digest 全量 01:30]     → mem0 STM（LLM 提炼，昨日完整上下文）
-          [archive 02:00]         → mem0 LTM（活跃升级，不活跃删除）
+对话 → [openclaw-plugin agent_end hook] → diary（实时写入）
+       [digest --today 每15分钟]        → mem0 STM（50KB 分批，近实时）
+       [dream 02:00]                    → mem0 LTM（步骤一：昨日日记 + 步骤二：7天前STM整合）
 ```
 
 ### 优势

@@ -118,7 +118,7 @@ python3 /path/to/mem0-memory-service/cli.py add \
 ```
 请检查 mem0 记忆管道的健康状态：
 
-1. 检查 systemd timer 状态：systemctl --user status mem0-snapshot.timer mem0-digest.timer mem0-dream.timer
+1. 检查 systemd timer 状态：systemctl --user status mem0-digest.timer mem0-dream.timer
 2. 检查今天的日记文件是否存在：memory/YYYY-MM-DD.md
 3. 检查 auto_digest 最近一次运行时间：查看 auto_digest.log 或 auto_digest_offset.json
 4. 搜索 mem0 中的近期记忆：python3 cli.py search --user boss --agent &lt;your-agent&gt; --query "近期工作" --combined --recent-days 3

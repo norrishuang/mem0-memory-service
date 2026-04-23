@@ -165,7 +165,7 @@ Here is a concrete trace of how a piece of knowledge traveled through the full p
 
 ### Day T: The work happens
 
-On 2026-04-17, the dev agent was working on the `auto_dream.py` Step 3 consolidation logic. During the session, `session_snapshot.py` was capturing conversations into `memory/2026-04-17.md` every 5 minutes.
+On 2026-04-17, the dev agent was working on the `auto_dream.py` Step 3 consolidation logic. During the session, the openclaw-plugin `agent_end` hook was capturing conversations into `memory/2026-04-17.md` in real-time.
 
 Within 15 minutes, `auto_digest --today` ran its two passes on the new diary content.
 
@@ -243,7 +243,7 @@ All without any explicit human curation. This is AutoDream working as intended: 
 
 | Time | Script | What happens |
 |------|--------|--------------|
-| Every 5 min | `session_snapshot.py` | Conversation → diary file |
+| Real-time | openclaw-plugin `agent_end` hook | Conversation → diary file |
 | Every 15 min | `auto_digest.py --today` | Diary → short-term (Pass ①: general facts + Pass ②: task extraction) |
 | UTC 02:00 | `auto_dream.py` Step 1 | 7-day diary corpus → long-term (cross-day reflection via `REFLECTION_PROMPT`) |
 | UTC 02:00 | `auto_dream.py` Step 2 | 7-day-old short-term → re-add to long-term (global dedup) → delete originals |

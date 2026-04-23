@@ -3,12 +3,14 @@
 > Recorded: 2026-03-28
 > Authors: norrishuang + Dev Agent
 
-This page documents the full evolution of the `session_snapshot → mem0` memory ingestion pipeline —
+This page documents the full evolution of the memory ingestion pipeline (`session_snapshot` has been retired, now replaced by the openclaw-plugin `agent_end` hook) —
 the motivations behind each change, the problems we discovered, and the final trade-offs we made.
 
 ---
 
-## Phase 1: Original Design (Snapshot Writes Directly to mem0)
+## Phase 1: Original Design (Snapshot Writes Directly to mem0) — Retired
+
+> **Note**: `session_snapshot.py` has been retired, replaced by the openclaw-plugin `agent_end` hook for real-time diary capture. This section is preserved as historical record.
 
 ### What We Did
 
@@ -29,7 +31,7 @@ session → [snapshot every 5min] → diary file
 
 ### Fix (commit `a841494`)
 
-Removed mem0 write logic from session_snapshot entirely. **Snapshots write diary files only.** All mem0 writes delegated to auto_digest.
+Removed mem0 write logic from session_snapshot entirely. **Snapshots write diary files only.** All mem0 writes delegated to auto_digest. (Subsequently, session_snapshot itself was replaced by the openclaw-plugin `agent_end` hook.)
 
 ---
 
@@ -74,7 +76,9 @@ The approach was technically sound, but running it revealed a cascade of issues:
 
 ---
 
-## Phase 3: Regression + Precise Fixes (Current)
+## Phase 3: Regression + Precise Fixes — Evolved
+
+> **Note**: The session_snapshot fixes in this phase remain instructive, but session_snapshot itself has been replaced by the openclaw-plugin `agent_end` hook. In the current architecture, diary files are written in real-time by the plugin — no polling required.
 
 ### Core Decision: Simpler Architecture + Fix the Actual Bugs
 
@@ -82,7 +86,7 @@ The "more aggressive ingestion" approach added complexity that outweighed its be
 We decided to:
 
 - **Keep** `auto_digest.py --today` as a supplementary channel, but not rely on it for "real-time"
-- **Fix the root causes** in session_snapshot rather than layering more logic on top
+- **Fix the root causes** rather than layering more logic on top
 
 ### Specific Fixes
 
@@ -133,10 +137,9 @@ while len(content.encode()) > MAX_DIARY_BYTES:
 ### Current Architecture
 
 ```
-session → [snapshot 5min]         → diary (hash dedup, 200KB ceiling)
-          [digest --today 15min]  → mem0 STM (50KB batches, near-realtime)
-          [digest full 01:30]     → mem0 STM (LLM distill, full-day context)
-          [archive 02:00]         → mem0 LTM (active↑, inactive→delete)
+conversation → [openclaw-plugin agent_end hook] → diary (real-time)
+               [digest --today 15min]           → mem0 STM (50KB batches, near-realtime)
+               [dream 02:00]                    → mem0 LTM (Step1: yesterday diary + Step2: 7d STM consolidation)
 ```
 
 ### Strengths

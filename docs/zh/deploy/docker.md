@@ -236,7 +236,6 @@ docker compose up -d
 docker compose exec mem0-api python3 cli.py search --user boss --agent agent1 --query "deploy"
 
 # 手动触发 pipeline
-docker compose exec mem0-pipeline python3 pipelines/session_snapshot.py
 docker compose exec mem0-pipeline python3 pipelines/auto_digest.py --today
 docker compose exec mem0-pipeline python3 pipelines/auto_dream.py
 
@@ -250,9 +249,10 @@ pipeline 容器运行三个 cron 任务：
 
 | 脚本 | 调度 | 用途 |
 |------|------|------|
-| `session_snapshot.py` | 每 5 分钟 | 保存活跃 session 对话到日记文件 |
 | `auto_digest.py --today` | 每 15 分钟 | 从今日日记提取短期记忆 |
 | `auto_dream.py` | 每天 UTC 02:00 | 日记→长期记忆 + 归档旧短期记忆 |
+
+> **注**：日记文件由 openclaw-plugin 的 `agent_end` hook 实时写入（在 Docker 外部运行）。之前的 `session_snapshot.py`（每 5 分钟）已停用。
 
 ## Docker vs systemd 对比
 

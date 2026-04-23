@@ -16,7 +16,7 @@ hero:
 features:
   - icon: 🧠
     title: 跨 Session 持久记忆
-    details: 对话内容持续被捕获并提炼为记忆——近期上下文数分钟内即可召回，每日全量提炼产出更高质量的长期记忆。上下文永不丢失。
+    details: 对话内容通过 openclaw-plugin 实时捕获并提炼为记忆——近期上下文数分钟内即可召回，每晚 AutoDream 自动沉淀为更高质量的长期记忆。上下文永不丢失。
   - icon: 🤖
     title: 多 Agent 隔离记忆
     details: 支持多个 Agent 并行运行（agent1 / agent2 / agent3 等），各 Agent 记忆空间完全隔离、互不干扰，从 openclaw.json 自动发现所有 Agent。标记为 `experience` 的记忆自动在所有 Agent 间共享，沉淀团队集体经验。
@@ -28,7 +28,7 @@ features:
     details: 支持 AWS OpenSearch（默认）和 AWS S3 Vectors 作为向量后端，一个环境变量即可切换。LLM 推理和向量嵌入均运行在 AWS Bedrock 上，数据全程留在你的 AWS 账户内。
   - icon: 🌊
     title: MemoryStream 记忆流
-    details: "对话持续流入 mem0——每 5 分钟快照，每 15 分钟提炼。Session 之间，上下文永不丢失。"
+    details: "对话持续流入 mem0——openclaw-plugin 实时捕获，每 15 分钟提炼。Session 之间，上下文永不丢失。"
   - icon: 🔌
     title: 一次启用，全 Agent 生效
     details: 启用 mem0-memory Skill，所有 Agent 自动继承完整记忆行为（写日记、维护 MEMORY.md、检索上下文）。无需修改任何 AGENTS.md。

@@ -13,18 +13,16 @@ sudo systemctl enable --now mem0-memory
 
 ## 定时任务
 
-### 会话快照（每 5 分钟）
+### 日记捕获（openclaw-plugin 实时写入）
 
-将当前活跃会话的对话保存到日记文件，防止会话压缩导致数据丢失。
+日记文件由 openclaw-plugin 的 `agent_end` hook 实时写入——无需单独的定时器或轮询进程。Plugin 在每轮 agent 对话结束后触发，将对话内容写入 agent 的日记文件。
 
-```bash
-mkdir -p ~/.config/systemd/user/
-cp systemd/mem0-snapshot.service ~/.config/systemd/user/
-cp systemd/mem0-snapshot.timer ~/.config/systemd/user/
-
-systemctl --user daemon-reload
-systemctl --user enable --now mem0-snapshot.timer
-```
+> **注**：之前的 `session_snapshot.py`（每 5 分钟）及其 `mem0-snapshot.timer` 已停用。如果已安装，可以安全地禁用并删除：
+> ```bash
+> systemctl --user disable --now mem0-snapshot.timer
+> rm ~/.config/systemd/user/mem0-snapshot.{service,timer}
+> systemctl --user daemon-reload
+> ```
 
 ### 自动摘要（每 15 分钟）
 
@@ -53,15 +51,15 @@ sudo systemctl enable --now mem0-dream.timer
 
 ```bash
 # 检查定时器状态
-systemctl --user list-timers mem0-snapshot.timer
+systemctl --user list-timers mem0-digest.timer
 sudo systemctl list-timers mem0-dream.timer
 
 # 手动触发
-systemctl --user start mem0-snapshot.service
+systemctl --user start mem0-digest.service
 sudo systemctl start mem0-dream.service
 
 # 查看日志
-journalctl --user -u mem0-snapshot.service -f
+journalctl --user -u mem0-digest.service -f
 journalctl -u mem0-dream.service -f
 ```
 
@@ -69,6 +67,6 @@ journalctl -u mem0-dream.service -f
 
 | 任务 | 频率 | 方式 | 用途 |
 |------|-----------|--------|---------|
-| `pipelines/session_snapshot.py` | 每 5 分钟 | systemd 用户定时器 | 保存会话对话到日记 |
+| openclaw-plugin `agent_end` hook | 实时 | Plugin（在 OpenClaw 中运行） | 每轮对话结束后写入日记 |
 | `pipelines/auto_digest.py` | 每 15 分钟 | cron | 从日记中提取短期记忆 |
 | `pipelines/auto_dream.py` | 每天 02:00 UTC | systemd 系统定时器 | **AutoDream**：日记→长期记忆 + 通过 mem0 原生推理清理短期记忆 |

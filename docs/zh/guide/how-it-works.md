@@ -9,12 +9,12 @@
 | **Session 重置零盲区** | 无论 session 何时结束，对话内容不丢失 | 今日日记 + 昨日日记 + mem0 三路覆盖，消除所有时间窗口空白 |
 | **短期→长期两级记忆** | 近期内容独立隔离，只有经过验证的事实才升级为长期记忆 | `auto_digest` 以 `run_id=today` 写入（有界去重）；`auto_dream` 在 UTC 02:00 执行全局去重并晋升 |
 | **按 category 定向抽取** | 不同记忆类型需要不同的抽取视角 | 每次 `/memory/add` 可传 `custom_extraction_prompt`；`auto_digest` 对每个 session block 自动执行任务专项 pass |
-| **双路日记写入** | Agent 主动写入质量高；自动化是兜底保障 | Agent 实时写日记；`session_snapshot` 每 5 分钟兜底抓取 |
+| **实时日记捕获** | 每轮对话结束后立即写入日记 | openclaw-plugin `agent_end` hook 实时写入；Agent 主动写入质量更高 |
 | **语义检索，非关键词匹配** | 按语义含义查找记忆，无需精确措辞 | 向量相似度 + 时间衰减混合排序（`0.7 × 相似度 + 0.3 × 新鲜度`） |
 | **跨 Agent 知识共享** | 一个 Agent 的经验教训，所有 Agent 即时受益 | `category=experience` / `procedural` 自动写入共享池；每次搜索自动包含共享池结果 |
 | **放量写入，自动去重** | Agent 无需担心重复，mem0 内部处理 | `infer=True` 触发内部 fact extraction；同日去重由 `run_id` 边界隔离 |
 | **三条路径通往长期记忆** | 不同来源以不同速度落入长期记忆 | CLI 直写（即时）→ `memory_sync`（当日）→ `auto_dream`（7 天周期） |
-| **多 Session、多 Agent 连续性** | 群聊里发生的事，私聊 session 也能感知 | `session_snapshot` 覆盖所有 `agent:{id}:*` session；约 20 分钟传播延迟 |
+| **多 Session、多 Agent 连续性** | 群聊里发生的事，私聊 session 也能感知 | openclaw-plugin 覆盖所有 agent session；约 15 分钟传播延迟（经 auto_digest） |
 
 ## 核心问题：Session 是无状态的
 
@@ -67,7 +67,7 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 ```markdown
 ## 14:30
 
-- 修复了 session_snapshot 重复写入 bug：从块级比较改为逐行内容比对
+- 修复了 session_snapshot 重复写入 bug：从块级比较改为逐行内容比对（历史记录，session_snapshot 已停用）
 - PR #7 提交并 merge
 ```
 
@@ -89,9 +89,9 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 └────────────────┬──────────────────────┬─────────────────────┘
                  │                      │
                  ▼                      ▼
-         Agent 主动写日记         session_snapshot 兜底
-         （SKILL.md 指导，        （每 5 分钟自动捕获，
-          高质量，精选内容）        原始对话片段）
+         Agent 主动写日记         openclaw-plugin
+         （SKILL.md 指导，        agent_end hook
+          高质量，精选内容）      （实时，每轮对话结束）
                  │                      │
                  └──────────┬───────────┘
                             ▼
@@ -112,7 +112,7 @@ Agent 读到「🔴 Agent Memory Behavior」规则
               ▼             ▼              ▼              ▼
           MEMORY.md     mem0 短期记忆  mem0 长期记忆  mem0 长期记忆
           （已更新）     （今日，       （无 run_id，   （无 run_id）
-                          约 20 分钟    次日生效）
+                          约 15 分钟    次日生效）
                           延迟）
                              │
                         UTC 02:00
@@ -128,7 +128,7 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 
 ## 部署方式：Docker vs. systemd
 
-记忆管线脚本（`session_snapshot`、`auto_digest`、`auto_dream`、`memory_sync`）无论哪种部署方式都以相同逻辑运行，区别仅在于进程管理器：
+记忆管线脚本（`auto_digest`、`auto_dream`、`memory_sync`）无论哪种部署方式都以相同逻辑运行，区别仅在于进程管理器：
 
 | | Docker（推荐） | systemd |
 |---|---|---|
@@ -144,7 +144,7 @@ Agent 读到「🔴 Agent Memory Behavior」规则
 
 | 时间（UTC） | 脚本 | 做什么 |
 |------------|------|--------|
-| 每 5 分钟 | `pipelines/session_snapshot.py` | 捕获会话对话 → 日记文件 |
+| 实时 | openclaw-plugin `agent_end` hook | 每轮对话结束后写入日记文件 |
 | 每 15 分钟 | `pipelines/auto_digest.py --today` | 增量模式：读取日记新增内容 → mem0 短期记忆（infer=True，fact extraction）+ 任务专项 pass（custom_extraction_prompt → category=task） |
 | 01:00 | `pipelines/memory_sync.py` | 同步 `MEMORY.md` → mem0 长期记忆（hash 去重） |
 | 02:00 | `pipelines/auto_dream.py` | **AutoDream**：Step1: 昨日日记 → mem0 长期记忆（infer=True）；Step2: 7天前短期记忆 → re-add 到长期（infer=True）后删除 |
@@ -179,37 +179,31 @@ Session block
 
 **扩展到其他分类：** 同样的模式适用于任意 category。在任何 `/memory/add` 调用中传入 `custom_extraction_prompt`，即可按需提炼决策、配置变更或自定义维度的记忆——不影响全局 mem0 配置。
 
-## session_snapshot 的两个角色
+## 通过 openclaw-plugin 实时捕获日记
 
-`session_snapshot.py` 有两个用途：
+openclaw-plugin 的 `agent_end` hook 取代了之前的 `session_snapshot.py` 轮询方式。它在每轮 agent 对话结束后触发，实时将对话内容写入 agent 的日记文件。
 
 **主要角色：跨 Session 记忆桥梁**
-Agent 每天重置。没有 snapshot，session 之间的对话就会丢失。Snapshot 将每次对话捕获到日记文件，再由 `auto_digest.py` 提炼进 mem0。新 session 启动时，agent 从 mem0 检索相关记忆——无缝恢复上下文。
+Agent 每天重置。没有日记捕获，session 之间的对话就会丢失。`agent_end` hook 将每轮对话捕获到日记文件，再由 `auto_digest.py` 提炼进 mem0。新 session 启动时，agent 从 mem0 检索相关记忆——无缝恢复上下文。
 
 **辅助角色：Compaction 保底**
-当 session 上下文窗口增长过大时，OpenClaw 会压缩（compact）历史记录。最近几分钟的对话可能在 compaction 中丢失。Snapshot 每 5 分钟运行一次，确保内容在被 compaction 丢失之前已写入磁盘。
+当 session 上下文窗口增长过大时，OpenClaw 会压缩（compact）历史记录。`agent_end` hook 确保每轮对话结束后内容已写入磁盘——在 compaction 丢失之前。这比之前每 5 分钟轮询的方式更可靠，不会遗漏任何对话。
 
 **第三个角色：近实时跨 session 记忆共享**
-同一个 agent 可能有多个并发 session——一个单聊 session 和一个或多个群聊 session。没有共享机制的话，agent 在群聊里说的内容，单聊 session 完全看不到（反之亦然）。
-
-`session_snapshot.py` 每 5 分钟将新对话写入日记文件，`auto_digest.py --today` 再每 15 分钟增量读取日记新增内容，以 `infer=True` 写入 mem0 短期记忆（run_id=今天，fact extraction）。同一 agent 的其他 session 搜索 mem0 即可在约 **20 分钟内**（5 分钟 snapshot + 15 分钟 digest）获取到这些内容——无需重启 session。
-
-session 来源记录在 metadata 的 `session_key` 字段中，需要时可按来源过滤。
+同一个 agent 可能有多个并发 session——一个单聊 session 和一个或多个群聊 session。`agent_end` hook 在每轮对话后将新内容写入日记文件，`auto_digest.py --today` 再每 15 分钟增量读取日记新增内容，以 `infer=True` 写入 mem0 短期记忆。同一 agent 的其他 session 搜索 mem0 即可在约 **15 分钟内**获取到这些内容——无需重启 session。
 
 ## 日记文件的两条写入路径
 
-由于并非所有 agent 都会主动维护日记，存在两条并行的捕获路径：
+日记文件通过两条互补的路径写入：
 
 | 路径 | 写入者 | 质量 | 时机 |
 |------|--------|------|------|
 | **Agent 主动写** | Agent 自身（SKILL.md 指导） | 高——精选的有意义条目 | 实时，对话中 |
-| **Snapshot 自动写** | `session_snapshot.py`（自动化） | 较低——原始对话片段 | 每 5 分钟，不分内容 |
+| **Plugin 自动写** | openclaw-plugin `agent_end` hook | 良好——完整对话捕获 | 实时，每轮对话结束 |
 
-两条路径都写入同一个 `memory/YYYY-MM-DD.md` 文件。内容级去重确保每条消息不重复写入。
+两条路径都写入同一个 `memory/YYYY-MM-DD.md` 文件（位于 agent 的 workspace `~/.openclaw/workspace-{agentId}/memory/`）。Plugin 通过 `isNoise` 过滤噪音（问候语、简短交互），通过 `cleanContent` 清理内容后再写入。
 
-**Agent 主动写的质量更高。** 自动化是安全网。
-
-> **群聊 session 现已纳入捕获范围。** 之前 snapshot 只捕获 `main`（单聊）session。现在处理所有匹配 `agent:{id}:*` 的 session——群聊对话同样写入日记文件和 mem0，实现同一 agent 跨上下文的记忆共享。
+**Agent 主动写的质量更高。** Plugin 提供全面的自动化捕获作为补充。
 
 ## 进入长期记忆的三条路径
 

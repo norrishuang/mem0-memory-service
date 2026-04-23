@@ -237,7 +237,6 @@ docker compose up -d
 docker compose exec mem0-api python3 cli.py search --user boss --agent agent1 --query "deploy"
 
 # Manually trigger a pipeline
-docker compose exec mem0-pipeline python3 pipelines/session_snapshot.py
 docker compose exec mem0-pipeline python3 pipelines/auto_digest.py --today
 docker compose exec mem0-pipeline python3 pipelines/auto_dream.py
 
@@ -251,9 +250,10 @@ The pipeline container runs three cron jobs:
 
 | Script | Schedule | Purpose |
 |--------|----------|---------|
-| `session_snapshot.py` | Every 5 min | Save active session conversations to diary files |
 | `auto_digest.py --today` | Every 15 min | Extract short-term memories from today's diary |
 | `auto_dream.py` | Daily UTC 02:00 | Consolidate diary→long-term + archive old short-term |
+
+> **Note**: Diary files are written in real-time by the openclaw-plugin `agent_end` hook (outside Docker). The previous `session_snapshot.py` (every 5 min) has been retired.
 
 ## Docker vs systemd Comparison
 

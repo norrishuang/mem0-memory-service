@@ -120,7 +120,7 @@ Check that the automated pipelines (session snapshot → diary → digest → me
 ```
 Please check the health of the mem0 memory pipeline:
 
-1. Check systemd timer status: systemctl --user status mem0-snapshot.timer mem0-digest.timer mem0-dream.timer (or equivalent)
+1. Check systemd timer status: systemctl --user status mem0-digest.timer mem0-dream.timer (or equivalent)
 2. Check if today's diary file exists at memory/YYYY-MM-DD.md
 3. Check the last run time of auto_digest: look at auto_digest.log or auto_digest_offset.json
 4. Search mem0 for recent memories: python3 cli.py search --user boss --agent &lt;your-agent&gt; --query "recent work" --combined --recent-days 3
