@@ -11,6 +11,27 @@
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
+/**
+ * Resolve an agent's workspace dir from OpenClaw config object.
+ * Reads agents.list[].workspace if configured, otherwise falls back to
+ * ~/.openclaw/workspace-<agentId>.
+ */
+function resolveWorkspaceDirFromConfig(config, agentId) {
+  try {
+    const list = config?.agents?.list;
+    if (Array.isArray(list)) {
+      const entry = list.find((a) => a && a.id === agentId);
+      if (entry?.workspace) return entry.workspace;
+    }
+    // Check defaults.workspace
+    const defaultsWs = config?.agents?.defaults?.workspace;
+    // Find default agent id
+    const defaultId = config?.agent?.id || "main";
+    if (agentId === defaultId && defaultsWs) return defaultsWs;
+  } catch (_) {}
+  return null;
+}
+
 const DEFAULT_CONFIG = {
   mem0Url: "http://localhost:8230",
   userId: "boss",
@@ -127,9 +148,16 @@ function extractTextContent(content) {
 
 /**
  * Get workspace base path for a given agentId.
- * OPENCLAW_BASE points to ~/.openclaw, workspaces are under it.
+ * Prefers reading workspace from OpenClaw config over hardcoded paths.
+ * Falls back to ~/.openclaw/workspace-<agentId> if not configured.
  */
-function getWorkspaceBase(agentId) {
+function getWorkspaceBase(agentId, apiConfig = null) {
+  // Best path: read from live OpenClaw config (handles custom workspace dirs like main → /home/ec2-user/clawd)
+  if (apiConfig) {
+    const fromConfig = resolveWorkspaceDirFromConfig(apiConfig, agentId);
+    if (fromConfig) return fromConfig;
+  }
+  // Fallback: legacy hardcoded path
   const openclawBase =
     process.env.OPENCLAW_BASE ||
     join(process.env.HOME || "/root", ".openclaw");
@@ -179,12 +207,12 @@ function cleanContent(text) {
  * Append a conversation exchange to today's diary file.
  * Format matches session_snapshot.py output for consistency.
  */
-function writeDiaryEntry(cfg, agentId, sessionKey, messages) {
+function writeDiaryEntry(cfg, agentId, sessionKey, messages, apiConfig = null) {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const hhmm = now.toISOString().slice(11, 16);
 
-  const workspaceBase = getWorkspaceBase(agentId);
+  const workspaceBase = getWorkspaceBase(agentId, apiConfig);
   const diaryDir = join(workspaceBase, "memory");
   const diaryPath = join(diaryDir, `${today}.md`);
 
@@ -336,9 +364,9 @@ const plugin = {
             console.log(`[mem0-plugin] agent_end: infer write agent=${agentId}`);
           } else if (cfg.enableRawWrite) {
             // 写日记文件，不 debounce，每轮都写
-            const ok = writeDiaryEntry(cfg, agentId, ctx.sessionKey, event.messages);
+            const ok = writeDiaryEntry(cfg, agentId, ctx.sessionKey, event.messages, api.config);
             if (ok) {
-              console.log(`[mem0-plugin] agent_end: diary write agent=${agentId}`);
+              console.log(`[mem0-plugin] agent_end: diary write agent=${agentId} workspace=${getWorkspaceBase(agentId, api.config)}`);
             }
           }
         } catch (err) {
