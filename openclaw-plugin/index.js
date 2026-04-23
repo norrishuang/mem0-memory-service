@@ -127,12 +127,13 @@ function extractTextContent(content) {
 
 /**
  * Get workspace base path for a given agentId.
- * Each agent writes to its own workspace: ~/.openclaw/workspace-{agentId}
+ * OPENCLAW_BASE points to ~/.openclaw, workspaces are under it.
  */
-function getWorkspaceBase(cfg, agentId) {
-  const base = cfg.diaryBasePath; // e.g. ~/.openclaw/workspace-dev
-  const openclawBase = join(base, ".."); // ~/.openclaw/
-  if (!agentId) return base;
+function getWorkspaceBase(agentId) {
+  const openclawBase =
+    process.env.OPENCLAW_BASE ||
+    join(process.env.HOME || "/root", ".openclaw");
+  if (!agentId) return join(openclawBase, "workspace-dev");
   return join(openclawBase, `workspace-${agentId}`);
 }
 
@@ -183,7 +184,7 @@ function writeDiaryEntry(cfg, agentId, sessionKey, messages) {
   const today = now.toISOString().slice(0, 10);
   const hhmm = now.toISOString().slice(11, 16);
 
-  const workspaceBase = getWorkspaceBase(cfg, agentId);
+  const workspaceBase = getWorkspaceBase(agentId);
   const diaryDir = join(workspaceBase, "memory");
   const diaryPath = join(diaryDir, `${today}.md`);
 
