@@ -150,7 +150,7 @@ function isNoise(text) {
 
 function cleanContent(text) {
   if (!text || !text.trim()) return '';
-  text = text.replace(/\[message_id=om_[a-f0-9]+\]\s*/g, '');
+  text = text.replace(/\[message_id=om_[a-zA-Z0-9]+\]\s*/g, '');
   text = text.replace(
     /(?:Conversation info|Sender|Inbound Context|Replied message)\s*\(.*?\):\s*```json[\s\S]*?```/g,
     ''
