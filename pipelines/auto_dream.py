@@ -44,6 +44,11 @@ OPENCLAW_BASE = Path(os.environ.get("OPENCLAW_BASE",
                      os.environ.get("OPENCLAW_HOME", Path.home() / ".openclaw")))
 OPENCLAW_CONFIG = OPENCLAW_BASE / "openclaw.json"
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import DIGEST_LLM_MODEL, AWS_REGION
+
+bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+
 # ─── Setup Logging ───
 
 logging.basicConfig(
@@ -176,12 +181,6 @@ def _call_llm_for_summary(text: str, prompt: str) -> list[str]:
     直接调 Bedrock Converse API 提炼摘要，不经过 mem0（避免写入存储）。
     返回 facts 字符串列表；失败时返回空列表。
     """
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from config import DIGEST_LLM_MODEL, AWS_REGION
-
-    client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-    model_id = DIGEST_LLM_MODEL
-
     messages = [
         {
             "role": "user",
@@ -190,8 +189,8 @@ def _call_llm_for_summary(text: str, prompt: str) -> list[str]:
     ]
 
     try:
-        response = client.converse(
-            modelId=model_id,
+        response = bedrock_client.converse(
+            modelId=DIGEST_LLM_MODEL,
             messages=messages,
             inferenceConfig={"maxTokens": 4000, "temperature": 0.1},
         )
@@ -277,9 +276,123 @@ REFLECTION_PROMPT = """
 """
 
 
-# ─── Step 1: Reflect on Recent Week Diaries ───
+# ─── Chunking ───
 
-DAILY_CHUNK_LIMIT = 60_000  # 单日日记最大字符数，超出截断避免超出 LLM context
+CHUNK_SIZE = 20_000    # 单 chunk 上限
+OVERLAP_SIZE = 3_000   # overlap 大小（约 15%），必须是完整语义块
+
+# 语义分割标记，按优先级从高到低
+_SPLIT_PATTERNS = [
+    re.compile(r'(?=^#{2,3} )', re.MULTILINE),   # Markdown 标题行
+    re.compile(r'(?=^---\s*$)', re.MULTILINE),    # 分隔线
+    re.compile(r'\n\n'),                           # 双空行
+    re.compile(r'\n'),                             # 单行
+]
+
+
+def _split_at_level(text: str, level: int) -> list[str]:
+    """用第 level 级分隔符切割 text，返回非空片段列表。"""
+    if level >= len(_SPLIT_PATTERNS):
+        return [text]
+    parts = _SPLIT_PATTERNS[level].split(text)
+    return [p for p in parts if p.strip()]
+
+
+def split_by_markers(content: str, chunk_size: int = CHUNK_SIZE, overlap_size: int = OVERLAP_SIZE) -> list[str]:
+    """将长文本按语义边界切割为多个 chunk，带 overlap 保持上下文连贯。"""
+    if len(content) <= chunk_size:
+        return [content]
+
+    # 用最高优先级能产生多段的分隔符切割
+    segments = None
+    for level in range(len(_SPLIT_PATTERNS)):
+        parts = _split_at_level(content, level)
+        if len(parts) > 1:
+            segments = parts
+            break
+    if segments is None:
+        # 所有分隔符都无法切割，硬切
+        segments = [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)]
+
+    # 递归细化超限 segment
+    expanded = []
+    for seg in segments:
+        if len(seg) > chunk_size:
+            expanded.extend(split_by_markers(seg, chunk_size, overlap_size))
+        else:
+            expanded.append(seg)
+    segments = expanded
+
+    # 贪心合并 segments 为 chunks，保证每个 chunk <= chunk_size
+    chunks: list[str] = []
+    current = ""
+    current_seg_indices: list[int] = []  # 当前 chunk 包含的 segment 索引
+
+    for idx, seg in enumerate(segments):
+        candidate = current + seg if current else seg
+        if len(candidate) > chunk_size and current:
+            chunks.append(current)
+            # overlap: 从当前 chunk 末尾回溯完整语义块
+            overlap_parts: list[str] = []
+            overlap_len = 0
+            for si in reversed(current_seg_indices):
+                if overlap_len + len(segments[si]) > overlap_size:
+                    break
+                overlap_parts.insert(0, segments[si])
+                overlap_len += len(segments[si])
+            current = "".join(overlap_parts) + seg
+            current_seg_indices = [idx]
+        else:
+            current = candidate
+            current_seg_indices.append(idx)
+
+    if current.strip():
+        chunks.append(current)
+
+    return chunks
+
+
+MERGE_FACTS_PROMPT = """你是一个记忆管理专家。以下是从同一天日记的多个片段中提取的技术事实列表，可能存在重复或相似内容。
+请合并重复项，保留最重要的不超过10条事实。每条不超过80字，聚焦技术决策、问题根因、解决方案。
+
+格式：每行一条，不加序号和标点前缀。
+
+事实列表：
+{facts}"""
+
+
+def _call_llm_merge_facts(facts: list[str]) -> list[str]:
+    """合并去重多个 chunk 提取的 facts，超过 20 条时调用 LLM。"""
+    facts_text = "\n".join(f"- {f}" for f in facts)
+    prompt = MERGE_FACTS_PROMPT.format(facts=facts_text)
+
+    try:
+        response = bedrock_client.converse(
+            modelId=DIGEST_LLM_MODEL,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 2000, "temperature": 0.1},
+        )
+        content_blocks = response["output"]["message"]["content"]
+        output = ""
+        for block in content_blocks:
+            if "text" in block:
+                output = block["text"].strip()
+                break
+        if not output:
+            return facts[:10]
+        # 按行解析，过滤空行和前缀
+        merged = []
+        for line in output.splitlines():
+            line = line.strip().lstrip("-•·0123456789.） ").strip()
+            if line:
+                merged.append(line)
+        return merged[:10] if merged else facts[:10]
+    except Exception as e:
+        logger.warning(f"Merge facts LLM call failed: {e}, returning first 10")
+        return facts[:10]
+
+
+# ─── Step 1: Reflect on Recent Week Diaries ───
 
 
 def reflect_week(agent_id: str, workspace: Path):
@@ -300,11 +413,23 @@ def reflect_week(agent_id: str, workspace: Path):
         content = diary_file.read_text(encoding="utf-8").strip()
         if not content:
             continue
-        # 截断过长的单日日记
-        if len(content) > DAILY_CHUNK_LIMIT:
-            logger.info(f"[{agent_id}] Daily diary {date} truncated from {len(content)} to {DAILY_CHUNK_LIMIT} chars")
-            content = content[:DAILY_CHUNK_LIMIT]
-        facts = _call_llm_for_summary(content, DAILY_SUMMARY_PROMPT)
+        # 分段处理超长日记
+        if len(content) > CHUNK_SIZE:
+            chunks = split_by_markers(content, CHUNK_SIZE, OVERLAP_SIZE)
+            logger.info(f"[{agent_id}] Daily diary {date} split into {len(chunks)} chunks ({len(content)} chars total)")
+            all_facts: list[str] = []
+            for ci, chunk in enumerate(chunks):
+                chunk_facts = _call_llm_for_summary(chunk, DAILY_SUMMARY_PROMPT)
+                logger.info(f"[{agent_id}] Chunk {ci+1}/{len(chunks)}: {len(chunk_facts)} facts")
+                all_facts.extend(chunk_facts)
+            if len(all_facts) > 20:
+                facts = _call_llm_merge_facts(all_facts)
+                logger.info(f"[{agent_id}] Merged {len(all_facts)} facts → {len(facts)} facts")
+            else:
+                seen: set[str] = set()
+                facts = [f for f in all_facts if not (f in seen or seen.add(f))]
+        else:
+            facts = _call_llm_for_summary(content, DAILY_SUMMARY_PROMPT)
         logger.info(f"[{agent_id}] Daily summary for {date}: {len(facts)} facts")
         if facts:
             daily_summaries[str(date)] = facts
